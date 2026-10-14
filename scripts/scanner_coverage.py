@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Build an honest offline rule/language coverage ledger from inert fixtures.
+"""Покрытие правил независимыми положительными и отрицательными примерами.
 
-Authored before/after examples are not independent cases. Legacy gaps are
-reported, not invented; every rule introduced in 1.7.0 requires two distinct
-positive and two negative independent sources per claimed language. Expanded
-forms opt in per language with coverage_required; legacy gaps stay visible.
+Примеры из самих карточек не считаются независимыми проверками. Для правил
+с обязательным покрытием нужны по два примера каждого вида на каждый язык.
 """
 from __future__ import annotations
 
@@ -15,7 +13,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-_SCANNER_SPEC = importlib.util.spec_from_file_location("durkahelper_coverage_scanner", ROOT / "scripts/defense_scan.py")
+_SCANNER_SPEC = importlib.util.spec_from_file_location("wahrwelt_coverage_scanner", ROOT / "scripts/defense_scan.py")
 scanner = importlib.util.module_from_spec(_SCANNER_SPEC)
 _SCANNER_SPEC.loader.exec_module(scanner)
 
@@ -57,7 +55,7 @@ def build_ledger(rules=None, cases=None, *, run_checks=False):
                 pair = (rid, case["language"])
                 if pair not in coverage:
                     raise ValueError("fixture rule/language mismatch")
-                # A duplicate or pasted authored example is never extra coverage.
+                # Дубликаты и примеры из карточек не увеличивают покрытие.
                 source = case["source"].strip()
                 if source not in {by_id[rid]["before"].strip(), by_id[rid]["after"].strip()}:
                     coverage[pair][category].add(hashlib.sha256(source.encode("utf-8")).hexdigest())
@@ -81,7 +79,7 @@ def build_ledger(rules=None, cases=None, *, run_checks=False):
                      "limitations": by_id[rid]["limitations"]})
     unmet = [{"rule": row["rule"], "language": row["language"]} for row in rows
              if row["required_for_release"] and not row["meets_independent_target"]]
-    return {"schema": "durkahelper.scanner-coverage.v1", "scanner_version": scanner.VERSION,
+    return {"schema": "wahrwelt.scanner-coverage.v1", "scanner_version": scanner.VERSION,
             "rules_sha256": scanner.rules_fingerprint(rules), "rule_count": len(rules),
             "rule_language_pairs": len(rows), "independent_fixture_records": len(cases),
             "authored_examples_counted": False, "checks_executed": run_checks,
@@ -92,8 +90,8 @@ def build_ledger(rules=None, cases=None, *, run_checks=False):
 def main(argv=None):
     scanner.configure_text_output()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--json", action="store_true", help="print the complete deterministic coverage ledger")
-    parser.add_argument("--check", action="store_true", help="also run inert fixture detector checks; no target code is executed")
+    parser.add_argument("--json", action="store_true", help="полный отчет о покрытии в JSON")
+    parser.add_argument("--check", action="store_true", help="проверить срабатывания на примерах, не исполняя их код")
     args = parser.parse_args(argv)
     try:
         ledger = build_ledger(run_checks=args.check)
@@ -103,9 +101,9 @@ def main(argv=None):
     if args.json:
         print(json.dumps(ledger, ensure_ascii=True, indent=2))
     else:
-        print(f"Rules: {ledger['rule_count']}; rule/language pairs: {ledger['rule_language_pairs']}; independent records: {ledger['independent_fixture_records']}")
-        print("Authored examples excluded. Legacy gaps remain visible; this is not proof of complete vulnerability coverage.")
-        print(f"Checks executed: {ledger['checks_executed']}; failed cases: {len(ledger['failing_case_ids'])}; unmet release pairs: {len(ledger['unmet_release_pairs'])}")
+        print(f"Правил: {ledger['rule_count']}; пар правило-язык: {ledger['rule_language_pairs']}; независимых примеров: {ledger['independent_fixture_records']}")
+        print("Примеры из карточек исключены. Покрытие примерами не гарантирует обнаружение всех уязвимостей.")
+        print(f"Проверки выполнены: {ledger['checks_executed']}; ошибок: {len(ledger['failing_case_ids'])}; непокрытых обязательных пар: {len(ledger['unmet_release_pairs'])}")
     return ledger["exit_code"]
 
 

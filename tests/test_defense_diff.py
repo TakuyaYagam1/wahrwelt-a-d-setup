@@ -1,4 +1,4 @@
-"""Report comparison is inert, bounded and explicit about incomplete evidence."""
+"""Сравнение отчетов соблюдает лимиты и отмечает неполные результаты."""
 import contextlib
 import hashlib
 import importlib.util
@@ -23,7 +23,7 @@ SCAN_SPEC.loader.exec_module(scanner)
 
 
 def scan_scope(**changes):
-    value = {"schema": "durkahelper.scanner-scope.v1",
+    value = {"schema": "wahrwelt.scanner-scope.v1",
              "root": "sha256:" + "a" * 64,
              "rules_sha256": "b" * 64,
              "exclude": [],
@@ -39,7 +39,7 @@ def scan_scope(**changes):
 
 
 def report(findings=(), **changes):
-    value = {"tool": "DurkaHelper defense_scan", "version": "1.6.0", "offline": True,
+    value = {"tool": "wahrwelt defense_scan", "version": "1.6.0", "offline": True,
              "created_at": "2026-10-09T00:00:00.000Z", "scope": scan_scope(),
              "findings": list(findings), "issues": [], "partial": False,
              "exit_code": 1 if findings else 0}
@@ -78,7 +78,7 @@ class ReportDiffTests(unittest.TestCase):
         for after in (report([finding()]), report()):
             result = compare(report([finding()]), after)
             self.assertEqual(result["exit_code"], 0)
-            self.assertIn("does not prove a fix", result["note"])
+            self.assertIn("не доказывает исправление", result["note"])
         self.assertEqual(compare(report(), report())["counts"], {"new": 0, "existing": 0, "not_observed": 0})
 
     def test_partial_and_changed_versions_keep_findings_and_exit_two(self):
@@ -256,7 +256,7 @@ class ReportDiffTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertNotIn("evil\n", text)
                 self.assertNotIn("\x1b", text)
-                self.assertEqual("EXISTING:" in text, visible)
+                self.assertEqual("ПРЕЖНЯЯ:" in text, visible)
 
     def test_real_scans_can_be_compared_without_network_execution_or_input_writes(self):
         rules = scanner.load_rules()

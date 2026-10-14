@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:durkahelper:schema:scanner-scope:v2",
-  "title": "Scanner comparability scope v2",
-  "$comment": "SHA256 covers canonical ASCII JSON with sorted keys and compact separators, excluding the sha256 field. Root is an opaque identity, not a path. Context digest covers normalized context including the empty default. A v1/v2 or context/semantics mismatch is incomparable, not a clean result. Exclusions must also be sorted/unique and all digests are verified by runtime.",
+  "$id": "urn:wahrwelt:schema:scanner-scope:v2",
+  "title": "Условия сравнения отчетов сканера, версия 2",
+  "$comment": "SHA256 считается по компактному ASCII JSON с сортировкой ключей без поля sha256. Root содержит идентификатор каталога. Хеш контекста включает нормализованное пустое значение. Разные версии, контексты или правила сравнения делают отчеты несопоставимыми. Исключения уникальны и отсортированы; сканер проверяет все хеши.",
   "type": "object", "additionalProperties": false,
   "required": ["schema", "root", "rules_sha256", "exclude", "limits", "path_semantics", "semantic_revision", "context_sha256", "sha256"],
   "properties": {
-    "schema": {"const": "durkahelper.scanner-scope.v2"},
+    "schema": {"const": "wahrwelt.scanner-scope.v2"},
     "root": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "rules_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "context_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

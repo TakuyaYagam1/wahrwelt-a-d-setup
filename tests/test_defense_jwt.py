@@ -1,4 +1,4 @@
-"""JWT API binding regressions; token decoders and fixture code are not run."""
+"""Привязка вызовов JWT API без запуска декодеров и кода примеров."""
 import importlib.util
 from pathlib import Path
 import tempfile

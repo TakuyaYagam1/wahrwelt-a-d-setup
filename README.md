@@ -1,94 +1,116 @@
-# DurkaHelper
+# wahrwelt A/D
 
-English | [Русский](README-RU.md)
+![wahrwelt](components/farm/server/front/public/logo.jpg)
 
-Offline Defense Toolkit for Attack/Defense CTF: review source, investigate traffic, verify patches and run the team's shared tools from one repository.
+Инструменты команды для A/D. Основной стенд: Linux x86_64 и Docker Compose.
 
-## What does what
+При сборке используются обновляемые теги образов и актуальные совместимые
+библиотеки. Для Python достаточно коротких `requirements.txt` с `>=`.
+Java-образ остается на линии 27, чтобы собирать Packmate.
+Farm и Neo используют плавающий образ `python:alpine`; в проверенной сборке
+от 2026-10-14 он содержал Python 3.15.0. Локальный сканер запускается системным
+Python и не требует внешних библиотек.
 
-| Tool | Use it for |
-|---|---|
-| **DurkaHelper scanner** | Find suspicious code/configuration in a **local source copy** and open a fix guide. It does not scan remote hosts or apply patches. |
-| **Packmate** | Read requests/responses and search traffic. Closed PCAP files on Docker Desktop; LIVE capture on an approved Linux observation point. |
-| **S4DFarm** | Collect flags, track their status and submit them to the competition. |
-| **Neo** | Distribute team scripts across workers and targets; send discovered flags to S4DFarm. |
+| Инструмент | Назначение                                                         |
+| ---------- | ------------------------------------------------------------------ |
+| Сканер     | Проверка локальных исходников и рецепты исправлений.               |
+| S4DFarm    | Прием, учет и отправка флагов.                                     |
+| Neo        | Распределение заданий между исполнителями и передача флагов ферме. |
+| Packmate   | Просмотр потоков, поиск по трафику и шаблоны подсветки.            |
 
-Protected services stay on the Vulnbox. Apply reviewed patches there through your normal service deployment procedure. The farm handles flags, not patch distribution.
-
-## Quick start
-
-For source review, only Python 3.10+ is needed; no pip installation:
-
-```bash
-git clone https://github.com/Nyarlad/DurkaHelper.git
-cd DurkaHelper
-python3 durka.py scan /path/to/service --patches
-```
-
-Exit 1 means findings to review. Start with one service and the [fix catalog](docs/vulnerabilities/README.md). A finding is a review signal, not proof of a vulnerability.
-
-To host the shared tools, start Docker Desktop on macOS or Docker Engine with Compose on Linux:
+## Запуск
 
 ```bash
-python3 durka.py init
+./control init
+# Настройте .env: адрес команды, сервисы и параметры соревнования.
+./control farm       # Только Farm с базой данных и интерфейсом.
+./control neo        # Только Neo с Redis и исполнителем.
+./control pack       # Только Packmate с базой данных.
+# Или ./control all-up для всего стенда.
 ```
 
-Edit `local/durka.json`: your LAN bind address, team/service addresses, flag format and competition submission settings. Passwords and the Neo key are generated for you. Keep this file private; `local/` is ignored by Git.
+`init` создает приватный `.env` и рабочие каталоги, контейнеры не запускает.
+Повторный `init` сохраняет существующие пароли.
+По умолчанию веб-интерфейсы доступны только на этом компьютере: Farm на порту
+8080, Packmate на 65000. Neo управляется через CLI и слушает gRPC на порту 5005.
+Для доступа команды задайте
+`BIND_ADDRESS` равным LAN-адресу хоста.
 
-Use an actual Ethernet IPv4 for teammate access and native Neo workers. Loopback is suitable for a laptop-only demo with the bundled worker.
+Остановка сохраняет данные. Отправка в систему соревнования включается отдельно:
 
 ```bash
-python3 durka.py setup
-python3 durka.py up
-python3 durka.py status
+./control pack down
+./control farm restart
+./control neo logs
+./control status
+./control farm submit-up    # Включить отправку после настройки .env.
+./control farm submit-down
+./control all-down
 ```
 
-`setup` downloads pinned sources/images and builds the stack; do it before going offline. `up` starts the farm, Neo coordinator and Packmate. Enable script execution and flag submission separately when ready:
+У каждого компонента есть `up`, `down`, `restart`, `logs` и `status`.
+`./control --help` показывает справку. Равнозначный запуск: `python3 control.py`.
+
+## От скрипта до борды
+
+Настройте в `.env` адреса команд `FARM_TEAMS`, формат флага `FARM_FLAG_FORMAT`
+и параметры системы приема `FARM_SYSTEM_*`. Затем запустите Farm и Neo:
 
 ```bash
-python3 durka.py worker
-python3 durka.py submit
+./control farm
+./control neo
 ```
 
-Read the [administrator setup](docs/MACOS_FULL_DEPLOYMENT_AND_TESTING.md) before submission. The maintained farm adapter is `ructf_http`; another protocol needs a compatible adapter. Packmate uses amd64 emulation on Apple Silicon: rehearse on the actual laptop.
+Полученный скрипт сначала проверьте на разрешенном адресе. `test` покажет вывод,
+код завершения и найденные флаги без их отправки. Для автоматической работы
+загрузите скрипт, включите его и просмотрите журнал:
 
-## During the game
+```bash
+./control neo test ./sploit_example.py 192.0.2.10 --timeout 10s
+./control neo add ./sploit_example.py --id example --disabled
+./control neo enable example
+./control neo tail example
+```
 
-1. Admin starts the tools and shares LAN URLs and credentials.
-2. Defenders copy service source, scan it and investigate suspicious traffic.
-3. Apply a small patch to the Vulnbox, check the service/checker and repeat the scan.
-4. Script writers test their work, submit it to Neo and watch flags in S4DFarm.
-5. Admin watches availability, disk and backups. Finish with `python3 durka.py down`.
+Повторный `neo add` с тем же `--id` загружает новую версию скрипта.
+Neo запускает задание по адресам из Farm и передает найденные флаги в Farm.
+Готовый флаг можно положить в Farm напрямую:
 
-Main routes: [administrator workflows 01–05](docs/ADMIN_WORKFLOWS.md), [participant guide](docs/participant-guide.md), [printable admin cheat sheet](docs/TEAM_LAN_ADMIN_CHEATSHEET.md). References: [documentation index](docs/README.md).
+```bash
+./control farm flag 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+```
 
-## Find, fix and verify
+То же действие есть в веб-интерфейсе Farm. Флаги появятся в очереди и таблице.
+После настройки протокола, адреса и токена системы соревнования включите отправку:
 
-**294 sections, 174 scanner rules.** Counts describe review recipes and signals, not distinct verified exploits.
+```bash
+./control farm submit-up
+```
 
-| Language / layer | Sections |
-|---|---:|
-| [Python](docs/vulnerabilities/python.md) | 40 |
-| [JavaScript / TypeScript](docs/vulnerabilities/javascript.md) | 28 |
-| [PHP](docs/vulnerabilities/php.md) | 23 |
-| [Go](docs/vulnerabilities/go.md) | 19 |
-| [Java](docs/vulnerabilities/java.md) | 18 |
-| [C# / .NET](docs/vulnerabilities/csharp.md) | 20 |
-| [C / C++](docs/vulnerabilities/c-cpp.md) | 28 |
-| [Ruby / Rails](docs/vulnerabilities/ruby.md) | 18 |
-| [Rust](docs/vulnerabilities/rust.md) | 18 |
-| [SQL / databases](docs/vulnerabilities/sql.md) | 18 |
-| [Configuration / trust boundaries](docs/vulnerabilities/configuration.md) | 64 |
+Статусы ответов системы видны в Farm. Если скрипту нужны соседние файлы,
+укажите `--dir` в `neo test` и `neo add`.
+В корне лежит [sploit_example.py](sploit_example.py): он получает адрес цели первым аргументом,
+делает HTTP-запрос и печатает уникальные совпадения формата
+`FARM_FLAG_FORMAT`. Настройте порт, путь и регулярное выражение в начале файла,
+затем добавьте логику своего задания в `run_exploit`. Neo передает
+напечатанные флаги в Farm; отправка на борду включается отдельно командой
+`./control farm submit-up`. Подробности: [Neo](components/neo/README.md),
+[Farm](components/farm/README.md), [Packmate и LIVE](components/packmate/README.md).
 
-## Development
+## Проверка исходников
 
-Tests and synthetic fixtures are for contributors; participants need not run the full suite before each game action.
+```bash
+./control scan /путь/к/проекту --patches
+./control scan-external /путь/к/проекту
+```
+
+Встроенный сканер запускается системным Python без установки библиотек. Он не запускает проверяемый код. Подробности: [справка по сканерам](docs/scanners.md), [каталог правил](docs/vulnerabilities/README.md).
+
+Проверки сканера:
 
 ```bash
 python3 -m unittest discover -s tests
 python3 scripts/scanner_coverage.py --check
 ```
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Capabilities](docs/CAPABILITY_INVENTORY.md)
-
-Use authorized systems and keep credentials, source, flags and captures private. DurkaHelper is [MIT licensed](LICENSE); external tools keep their [own licenses](THIRD_PARTY_NOTICES.md).
+Происхождение исходников и уведомления MIT собраны в [LICENSE](LICENSE).

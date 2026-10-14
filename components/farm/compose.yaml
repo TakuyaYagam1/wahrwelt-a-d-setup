@@ -1,0 +1,149 @@
+services:
+  farm-db:
+    build:
+      context: ../../containers
+      dockerfile: postgres.Dockerfile
+    environment:
+      POSTGRES_DB: farm
+      POSTGRES_USER: farm
+      POSTGRES_PASSWORD: ${FARM_DB_PASSWORD:?Задайте FARM_DB_PASSWORD}
+    volumes:
+      - farm-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farm -d farm"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    mem_limit: 512m
+    restart: unless-stopped
+    networks:
+      - farm-data
+
+  farm:
+    build:
+      context: ./server
+      additional_contexts:
+        project: ../..
+      dockerfile: docker/server/Dockerfile
+    environment:
+      FARM_PASSWORD: ${FARM_PASSWORD:?Задайте FARM_PASSWORD}
+      FARM_TEAMS: ${FARM_TEAMS:-}
+      FARM_FLAG_FORMAT: ${FARM_FLAG_FORMAT:-}
+      FARM_SYSTEM_PROTOCOL: ${FARM_SYSTEM_PROTOCOL:-}
+      FARM_SYSTEM_HOST: ${FARM_SYSTEM_HOST:-}
+      FARM_SYSTEM_PORT: ${FARM_SYSTEM_PORT:-31337}
+      FARM_SYSTEM_URL: ${FARM_SYSTEM_URL:-}
+      FARM_SYSTEM_TOKEN: ${FARM_SYSTEM_TOKEN:-}
+      FARM_SYSTEM_VALIDATOR: ${FARM_SYSTEM_VALIDATOR:-}
+      FARM_SYSTEM_SERVER_KEY: ${FARM_SYSTEM_SERVER_KEY:-}
+      FARM_SUBMIT_FLAG_LIMIT: ${FARM_SUBMIT_FLAG_LIMIT:-100}
+      FARM_SUBMIT_PERIOD: ${FARM_SUBMIT_PERIOD:-2}
+      FARM_FLAG_LIFETIME: ${FARM_FLAG_LIFETIME:-300}
+      FARM_INFO_FLAG_LIMIT: ${FARM_INFO_FLAG_LIMIT:-10}
+      FARM_TIMEZONE: ${FARM_TIMEZONE:-Europe/Moscow}
+      POSTGRES_DSN: postgresql://farm:${FARM_DB_PASSWORD:?Задайте FARM_DB_PASSWORD}@farm-db:5432/farm
+    expose:
+      - "5000"
+    depends_on:
+      farm-db:
+        condition: service_healthy
+    networks:
+      - default
+      - farm-data
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:5000/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    mem_limit: 384m
+    pids_limit: 128
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    restart: unless-stopped
+
+  farm-front:
+    build:
+      context: ./server
+      additional_contexts:
+        project: ../..
+      dockerfile: docker/front/Dockerfile
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${FARM_PORT:-8080}:8080"
+    depends_on:
+      farm:
+        condition: service_healthy
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    mem_limit: 128m
+    pids_limit: 64
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    restart: unless-stopped
+
+  farm-submit:
+    build:
+      context: ./server
+      additional_contexts:
+        project: ../..
+      dockerfile: docker/server/Dockerfile
+    profiles: [submission]
+    command: ["python", "sender.py"]
+    environment:
+      FARM_PASSWORD: ${FARM_PASSWORD:?Задайте FARM_PASSWORD}
+      FARM_TEAMS: ${FARM_TEAMS:-}
+      FARM_FLAG_FORMAT: ${FARM_FLAG_FORMAT:-}
+      FARM_SYSTEM_PROTOCOL: ${FARM_SYSTEM_PROTOCOL:-}
+      FARM_SYSTEM_HOST: ${FARM_SYSTEM_HOST:-}
+      FARM_SYSTEM_PORT: ${FARM_SYSTEM_PORT:-31337}
+      FARM_SYSTEM_URL: ${FARM_SYSTEM_URL:-}
+      FARM_SYSTEM_TOKEN: ${FARM_SYSTEM_TOKEN:-}
+      FARM_SYSTEM_VALIDATOR: ${FARM_SYSTEM_VALIDATOR:-}
+      FARM_SYSTEM_SERVER_KEY: ${FARM_SYSTEM_SERVER_KEY:-}
+      FARM_SUBMIT_FLAG_LIMIT: ${FARM_SUBMIT_FLAG_LIMIT:-100}
+      FARM_SUBMIT_PERIOD: ${FARM_SUBMIT_PERIOD:-2}
+      FARM_FLAG_LIFETIME: ${FARM_FLAG_LIFETIME:-300}
+      FARM_INFO_FLAG_LIMIT: ${FARM_INFO_FLAG_LIMIT:-10}
+      FARM_TIMEZONE: ${FARM_TIMEZONE:-Europe/Moscow}
+      POSTGRES_DSN: postgresql://farm:${FARM_DB_PASSWORD:?Задайте FARM_DB_PASSWORD}@farm-db:5432/farm
+    depends_on:
+      farm-db:
+        condition: service_healthy
+    restart: on-failure:3
+    stop_grace_period: 10m
+    mem_limit: 256m
+    pids_limit: 64
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    networks:
+      - default
+      - farm-data
+
+volumes:
+  farm-db:
+
+networks:
+  farm-data:
+    internal: true

@@ -1,56 +1,63 @@
-# C / C++: find, fix and verify
+<a id="c--c-find-fix-and-verify"></a>
 
-English | [Русский](c-cpp-RU.md)
+# C / C++: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-28 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+28 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [C-BOUNDS — Unbounded C/C++ copy](#c-bounds)
-- [C-FORMAT — Variable used as a format string](#c-format)
-- [C-SHELL — C/C++ shell execution](#c-shell)
-- [C-PRNG — Ordinary PRNG/LCG near a possible secret](#c-prng)
-- [C-SNPRINTF-FORMAT — Variable format in bounded printf](#c-snprintf-format)
-- [C-RECV-TERMINATOR — recv/read result used as an index](#c-recv-terminator)
-- [C-ATOI — atoi without checked conversion](#c-atoi)
-- [C-REALLOC — Overwriting the only pointer with realloc](#c-realloc)
-- [C-SIZE-OVERFLOW — Size arithmetic overflow](#c-size-overflow)
-- [CPP-LIFETIME — A pointer or view outlives its owner](#cpp-lifetime)
-- [C-PARTIAL-IO — TCP does not preserve message boundaries](#c-partial-io)
-- [C-SIGNED-LENGTH — Signed lengths become huge size_t values](#c-signed-length)
-- [C-DOUBLE-FREE — Multiple owners free the same object](#c-double-free)
-- [C-UNINITIALIZED — Exposing padding or uninitialized tails](#c-uninitialized)
-- [C-TEMPFILE-RACE — Temporary filename without atomic creation](#c-tempfile-race)
-- [C-JIT-RETURN — Not every JIT function path terminates](#c-jit-return)
-- [C-HEADER-SECRET — A special header branch changes a secret](#c-header-secret)
-- [C-OBJECT-TOCTOU — Re-reading mutable references after authorization](#c-object-toctou)
-- [C-EXEC-FAILURE — Failed exec leaves a child on the server path](#c-exec-failure)
-- [CPP-CACHED-LIFETIME — Cached pointers survive object destruction](#cpp-cached-lifetime)
-- [C-BLOCK-TAIL — Four-byte block processing corrupts the tail](#c-block-tail)
-- [C-ALLOC-FAILURE — Allocation failure becomes a NULL write](#c-alloc-failure)
-- [C-FD-NUL — Descriptor leaks amplify a read_line off-by-one](#c-fd-nul)
-- [C-REENTRANCY-AUTH — A callback runs between authorization and signing](#c-reentrancy-auth)
-- [C-BUILTIN-TYPES — One builtin overload omits argument-type checks](#c-builtin-types)
-- [C-HASH-INDEX — Hash-table indices exceed the upper boundary](#c-hash-index)
-- [C-STRNCPY — strncpy may omit NUL termination](#c-strncpy)
-- [C-COPY-LENGTH — Copy length comes directly from source strlen](#c-copy-length)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [C-BOUNDS - Неограниченное копирование C/C++](#c-bounds)
+- [C-FORMAT - Переменная как format string](#c-format)
+- [C-SHELL - Shell в C/C++](#c-shell)
+- [C-PRNG - Обычный PRNG/LCG в возможном секрете](#c-prng)
+- [C-SNPRINTF-FORMAT - Переменная как формат ограниченного printf](#c-snprintf-format)
+- [C-RECV-TERMINATOR - Результат recv/read используется как индекс](#c-recv-terminator)
+- [C-ATOI - atoi без проверки результата](#c-atoi)
+- [C-REALLOC - Перезапись единственного указателя realloc](#c-realloc)
+- [C-SIZE-OVERFLOW - Переполнение арифметики размера](#c-size-overflow)
+- [CPP-LIFETIME - Указатель/view переживает владельца](#cpp-lifetime)
+- [C-PARTIAL-IO - TCP не сохраняет границы сообщений](#c-partial-io)
+- [C-SIGNED-LENGTH - Знаковая длина становится большим size_t](#c-signed-length)
+- [C-DOUBLE-FREE - Несколько владельцев освобождают один объект](#c-double-free)
+- [C-UNINITIALIZED - Выдача padding и незаполненного хвоста](#c-uninitialized)
+- [C-TEMPFILE-RACE - Предсказуемое имя и check-then-open](#c-tempfile-race)
+- [C-JIT-RETURN - Не все пути JIT-функции завершаются](#c-jit-return)
+- [C-HEADER-SECRET - Особая ветка по заголовку меняет секрет](#c-header-secret)
+- [C-OBJECT-TOCTOU - Проверили объект, затем заново прочитали изменяемую ссылку](#c-object-toctou)
+- [C-EXEC-FAILURE - Ошибка exec оставляет дочерний процесс на серверном пути](#c-exec-failure)
+- [CPP-CACHED-LIFETIME - Кэш хранит указатель после освобождения объекта](#cpp-cached-lifetime)
+- [C-BLOCK-TAIL - Обработка блока по четыре байта портит хвост буфера](#c-block-tail)
+- [C-ALLOC-FAILURE - Ошибка выделения памяти превращается в запись по NULL](#c-alloc-failure)
+- [C-FD-NUL - Утечка fd усиливает off-by-one в read_line](#c-fd-nul)
+- [C-REENTRANCY-AUTH - Callback между auth-проверкой и подписью](#c-reentrancy-auth)
+- [C-BUILTIN-TYPES - Не проверен тип аргумента в одной перегрузке builtin](#c-builtin-types)
+- [C-HASH-INDEX - Индекс хеш-таблицы сдвинут за верхнюю границу](#c-hash-index)
+- [C-STRNCPY - strncpy может оставить строку без NUL](#c-strncpy)
+- [C-COPY-LENGTH - Длина копирования берётся напрямую из strlen источника](#c-copy-length)
 
 <a id="c-bounds"></a>
 
-## C-BOUNDS. Unbounded C/C++ copy
+<a id="c-bounds-unbounded-cc-copy"></a>
 
-**Search:** scanner rule C-BOUNDS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-BOUNDS` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-BOUNDS. Неограниченное копирование C/C++
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-BOUNDS. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-BOUNDS. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 strcpy(destination, source);
 ~~~
 
-**Fix:** Check length/capacity before copying and check snprintf's result; mechanical strncpy replacement is insufficient.
+**Исправление:** Проверять ёмкость/длину до копирования. snprintf проверять по результату; механический strncpy не решает всё.
 
 ~~~c
 size_t n = strlen(source);
@@ -58,10 +65,10 @@ if (n >= capacity) return ERROR;
 memcpy(destination, source, n + 1);
 ~~~
 
-**Verification:** Test empty, boundary and oversized input; use ASan/UBSan where available.
+**Проверка:** Пустой/граничный/слишком большой вход; ASan/UBSan если доступны.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```c
 /* Vulnerable: capacity and available source length are unchecked. */
@@ -70,10 +77,9 @@ memcpy(dst, src, client_len);
 dst[client_len] = '\0';
 ```
 
-**Patch for a protocol field defined as a C string without embedded NUL:**
+**Патч для поля протокола, которое является C-строкой без встроенного NUL:**
 
 <!-- example: c-copy-text -->
-
 ```c
 #include <stdbool.h>
 #include <stddef.h>
@@ -90,44 +96,51 @@ bool copy_text(char *dst, size_t capacity, const char *src,
 }
 ```
 
-available means bytes actually accessible, not the client's claimed size. Reject negative signed lengths **before** conversion to size_t. memmove permits overlap; failure leaves dst unchanged. The caller must handle false rather than transmit old buffer contents.
+`available` - фактически доступные байты, не заявленный клиентом размер.
+Знаковую длину проверить на отрицательность **до** перевода в `size_t`.
+`memmove` допускает перекрытие; при отказе функция не меняет dst. Вызывающий
+код обязан обработать `false`, а не отправлять прежнее содержимое буфера.
 
-**Check:** Empty string, capacity−1, capacity, insufficient source, zero capacity and embedded NUL; rejection leaves the buffer unchanged. Binary data may contain NUL and needs a different explicit-length contract. Silent strncpy truncation can corrupt identifiers or checker data.
+**Проверить:** пустая строка, capacity−1, capacity, недостаточный src,
+нулевая вместимость, NUL внутри текста; при отказе буфер не изменён.
+Для бинарных данных встроенный NUL допустим: нужен иной контракт с явной длиной.
+Молчаливое усечение через `strncpy` может испортить ID/данные checker.
 
 </details>
 
 <a id="c-format"></a>
 
-## C-FORMAT. Variable used as a format string
+<a id="c-format-variable-used-as-a-format-string"></a>
 
-**Search:** scanner rule C-FORMAT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-FORMAT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-FORMAT. Переменная как format string
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-FORMAT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-FORMAT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 printf(message);
 ~~~
 
-**Fix:** Use a fixed format and checked arguments; pass explicit lengths for binary data.
+**Исправление:** Фиксированный формат и проверенные аргументы; бинарным данным явная длина.
 
 ~~~c
 printf("%s", message);
 ~~~
 
-**Verification:** Percent characters print without interpreting directives.
+**Проверка:** Символы процента печатаются текстом.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```c
 /* Vulnerable: message controls the format and argument interpretation. */
 printf(message);
 ```
 
-**Patch when message is a valid NUL-terminated string:**
+**Патч, если message - корректная NUL-терминированная строка:**
 
 <!-- example: c-write-message -->
-
 ```c
 #include <stdbool.h>
 #include <stdio.h>
@@ -138,99 +151,119 @@ bool write_message(FILE *out, const char *message) {
 }
 ```
 
-Alternatively use fprintf(out, "%s", message) with a fixed format. For length-delimited network buffers use validated length and fwrite rather than assuming NUL termination. Handle write errors separately.
+Альтернатива - `fprintf(out, "%s", message)` с фиксированным форматом.
+Для сетевого буфера с известной длиной использовать проверенный размер и
+`fwrite`, не предполагать наличие NUL. Ошибку записи обработать отдельно.
 
-**Check:** %s, %% and Unicode print literally; empty strings work; avoid extra newlines if the protocol forbids them.
+**Проверить:** строка с `%s`, `%%` и Unicode выводится буквально; пустая строка
+допустима; текст не получает лишний перевод строки, если это важно протоколу.
 
 </details>
 
 <a id="c-shell"></a>
 
-## C-SHELL. C/C++ shell execution
+<a id="c-shell-cc-shell-execution"></a>
 
-**Search:** scanner rule C-SHELL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-SHELL` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-SHELL. Shell в C/C++
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-SHELL. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-SHELL. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 system(command);
 ~~~
 
-**Fix:** Use execve/posix_spawn with fixed program and validated argv; handle errors.
+**Исправление:** execve/posix_spawn с фиксированной программой/argv; проверить аргументы и ошибки.
 
 ~~~c
 run_fixed_tool(validated_filename); // fixed executable + argv inside
 ~~~
 
-**Verification:** Metacharacters are not interpreted by a shell.
+**Проверка:** Спецсимволы не интерпретируются shell.
 
 <a id="c-prng"></a>
 
-## C-PRNG. Ordinary PRNG/LCG near a possible secret
+<a id="c-prng-ordinary-prnglcg-near-a-possible-secret"></a>
 
-**Search:** scanner rule C-PRNG. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-PRNG` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-PRNG. Обычный PRNG/LCG в возможном секрете
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-PRNG. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-PRNG. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 srand((unsigned)time(NULL));
 token = rand();
 ~~~
 
-**Fix:** Use system CSPRNG/supported crypto and check results; ordinary non-security randomness may use a PRNG.
+**Исправление:** Для секрета системный CSPRNG/поддержанная криптобиблиотека, проверка результата. Обычная игровая случайность может использовать PRNG.
 
 ~~~c
 if (!fill_from_os_csprng(token, sizeof token)) return ERROR; // implement using supported OS/library API
 ~~~
 
-**Verification:** No predictable seed/fallback exists; token format stays compatible.
+**Проверка:** Нет seed от времени/const и предсказуемого fallback; формат токена совместим.
 
-**A/D variant:** Access identifiers from a time-seeded LCG. **ENOWARS / piratesay, author write-up.** An identifier permitted user switching while its generator depended on startup time.
+**Вариант A/D:** Идентификатор доступа из LCG со временем в seed. **ENOWARS / piratesay, автор.** Идентификатор разрешал сменить пользователя,
+а генератор зависел от времени старта.
 
-**Patch:** System CSPRNG and server-side credential/user binding. A hidden constant seed is not a sound fix. **Test:** New IDs and old sessions according to migration policy; entropy failure without fallback. **Search:** C-PRNG; inspect custom generators manually.
+**Патч:** системный CSPRNG и серверная привязка credential к пользователю.
+Скрытый константный seed не является надёжным исправлением.
+**Тест:** новые идентификаторы/старые сессии по плану перехода, ошибка источника
+энтропии без fallback. **Поиск:** C-PRNG; самодельные генераторы требуют чтения.
 
-[source/write-up 1](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/documentation/README.md); [source/write-up 2](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/cli.c); [source/write-up 3](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/session.c).
+[исходник/разбор 1](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/documentation/README.md); [исходник/разбор 2](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/cli.c); [исходник/разбор 3](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/session.c).
 
 <a id="c-snprintf-format"></a>
 
-## C-SNPRINTF-FORMAT. Variable format in bounded printf
+<a id="c-snprintf-format-variable-format-in-bounded-printf"></a>
 
-**Search:** scanner rule C-SNPRINTF-FORMAT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-SNPRINTF-FORMAT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-SNPRINTF-FORMAT. Переменная как формат ограниченного printf
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-SNPRINTF-FORMAT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-SNPRINTF-FORMAT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 snprintf(out, capacity, message);
 ~~~
 
-**Fix:** Use a fixed format; buffer limits do not secure untrusted format strings. Trace wrappers/macros.
+**Исправление:** Фиксированный формат. Лимит размера буфера не делает недоверенную format string безопасной; проследить собственные wrappers/macros.
 
 ~~~c
 snprintf(out, capacity, "%s", message);
 ~~~
 
-**Verification:** Percent characters stay text, truncation is handled; legitimate wrappers may still match.
+**Проверка:** Проценты выводятся как текст; длина/усечение обработаны; внутренний wrapper может оставаться сигналом.
 
-**A/D variant:** Format strings in a 'safe' wrapper. **ENOWARS / piratesay, author write-up.** Bounded writes and filtering a few specifiers did not stop another layer interpreting user text as a format.
+**Вариант A/D:** Format string внутри "безопасной" обёртки. **ENOWARS / piratesay, автор.** Ограниченная запись в буфер и фильтрация
+нескольких спецификаторов не мешали следующему слою снова интерпретировать
+пользовательский текст как формат.
 
-**Patch:** Fixed format at the final sink, data passed separately; trace macro → wrapper → printf-family. **Test:** Literal percent signs and handled truncation. **Search:** C-FORMAT, C-SNPRINTF-FORMAT; arbitrary wrapper names are not recognized automatically.
+**Патч:** фиксированный формат на последнем sink, данные отдельным аргументом;
+проследить macro -> wrapper -> printf-family. **Тест:** проценты печатаются
+буквально, усечение обрабатывается. **Поиск:** C-FORMAT, C-SNPRINTF-FORMAT;
+произвольные имена обёрток автоматически не распознаются.
 
-[source/write-up 1](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/documentation/README.md); [source/write-up 2](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/cli.c); [source/write-up 3](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/session.c).
+[исходник/разбор 1](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/documentation/README.md); [исходник/разбор 2](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/cli.c); [исходник/разбор 3](https://github.com/enowars/enowars8-service-piratesay/blob/32973478dbe903d0a2446539ecbddf3b1c334e60/service_source/src/session.c).
 
 <a id="c-recv-terminator"></a>
 
-## C-RECV-TERMINATOR. recv/read result used as an index
+<a id="c-recv-terminator-recvread-result-used-as-an-index"></a>
 
-**Search:** scanner rule C-RECV-TERMINATOR. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-RECV-TERMINATOR` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-RECV-TERMINATOR. Результат recv/read используется как индекс
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-RECV-TERMINATOR. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-RECV-TERMINATOR. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 n = recv(fd, buffer, sizeof buffer, 0);
 buffer[n] = '\0';
 ~~~
 
-**Fix:** Reserve NUL space, handle negative/EOF results before indexing, and handle short reads. Correct code may still match.
+**Исправление:** Оставить место для NUL, проверить отрицательную длину/EOF до индексации, учитывать неполное чтение. Сигнал может остаться на правильном коде.
 
 ~~~c
 ssize_t n = recv(fd, buffer, sizeof buffer - 1, 0);
@@ -238,43 +271,47 @@ if (n <= 0) return ERROR;
 buffer[n] = '\0';
 ~~~
 
-**Verification:** Test errors, EOF, full buffer, short reads and normal messages.
+**Проверка:** recv=-1, EOF, полный буфер, короткое чтение и обычное сообщение.
 
 <a id="c-atoi"></a>
 
-## C-ATOI. atoi without checked conversion
+<a id="c-atoi-atoi-without-checked-conversion"></a>
 
-**Search:** scanner rule C-ATOI. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-ATOI` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-ATOI. atoi без проверки результата
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-ATOI. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-ATOI. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 int size = atoi(input);
 ~~~
 
-**Fix:** Use checked conversion with end-pointer, range and errno validation; define the accepted numeric grammar.
+**Исправление:** Полный разбор числа: знак, диапазон, end pointer и errno; проверить арифметику до allocation/copy.
 
 ~~~c
 // use strtol/strtoull with errno, end pointer, sign and application bounds checks
 ~~~
 
-**Verification:** Empty, trailing junk, signs and overflow fail; permitted boundary values work.
+**Проверка:** Пусто, хвост текста, отрицательное число, overflow, граничный допустимый размер.
 
-**Reference:** [primary source](https://cmu-sei.github.io/secure-coding-standards/sei-cert-c-coding-standard/rules/error-handling-err/err34-c/).
+**Основание:** [первичный материал](https://cmu-sei.github.io/secure-coding-standards/sei-cert-c-coding-standard/rules/error-handling-err/err34-c/).
 
 <a id="c-realloc"></a>
 
-## C-REALLOC. Overwriting the only pointer with realloc
+<a id="c-realloc-overwriting-the-only-pointer-with-realloc"></a>
 
-**Search:** scanner rule C-REALLOC. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-REALLOC` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## C-REALLOC. Перезапись единственного указателя realloc
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило C-REALLOC. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-REALLOC. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~c
 buffer = realloc(buffer, size);
 ~~~
 
-**Fix:** Keep the original pointer until allocation succeeds; handle zero size and overflow according to the intended contract.
+**Исправление:** Проверенный ненулевой size, временный указатель и обработка ошибки. Отдельно обработать size=0 по контракту, не полагаться на переносимую семантику realloc(p,0).
 
 ~~~c
 void *next = realloc(buffer, size);
@@ -282,42 +319,43 @@ if (next == NULL) { /* preserve buffer; handle error */ }
 else { buffer = next; }
 ~~~
 
-**Verification:** Allocation failure leaks no original allocation and does not cause invalid access.
+**Проверка:** Fault injection allocation error сохраняет старый buffer; нет утечки/double free.
 
-**Reference:** [primary source](https://cmu-sei.github.io/secure-coding-standards/sei-cert-c-coding-standard/recommendations/memory-management-mem/mem04-c/).
+**Основание:** [первичный материал](https://cmu-sei.github.io/secure-coding-standards/sei-cert-c-coding-standard/recommendations/memory-management-mem/mem04-c/).
 
 <a id="c-size-overflow"></a>
 
-## C-SIZE-OVERFLOW. Size arithmetic overflow
+<a id="c-size-overflow-size-arithmetic-overflow"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-SIZE-OVERFLOW. Переполнение арифметики размера
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'malloc|calloc|resize|reserve|sizeof|memcpy' .
 ~~~
 
-Check SIZE_MAX and the application limit before multiplying/adding; check sign before casting.
+Перед умножением/сложением проверить SIZE_MAX и application limit; знак до cast.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`malloc(count * sizeof(Item))` allocates less than the later copy requires after overflow.
+malloc(count * sizeof(Item)) выделяет меньше, чем последующее копирование после overflow.
 
-**Fix:** Checked multiplication/addition and actual capacity; handle zero and allocation failure separately.
+**Исправление:** Проверенное умножение/сложение и фактическая capacity; отдельно обработать ноль и allocation failure.
 
-**Verification:** Zero, boundaries, product/sum overflow, negative inputs and existing buffers.
+**Проверка:** Ноль, граница, переполнение произведения/суммы, отрицательный вход и прежний буфер.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```c
 /* Vulnerable: count * sizeof(Item) can overflow. */
 Item *items = malloc(count * sizeof(*items));
 ```
 
-**Patch for arithmetic and the agreed size limit:**
+**Патч проверки арифметики и согласованного лимита:**
 
 <!-- example: c-array-bytes -->
-
 ```c
 #include <stdbool.h>
 #include <stddef.h>
@@ -333,34 +371,41 @@ bool array_bytes(size_t count, size_t item_size, size_t max_bytes, size_t *out) 
 }
 ```
 
-Call this before malloc with sizeof(*items) and a contractual limit; check allocation success. Handle count zero explicitly: malloc(0) returning NULL does not alone imply failure. Never use out after rejection. Adding headers/terminators needs a separate addition check; this function checks only multiplication.
+Перед `malloc` вызвать с `sizeof(*items)` и лимитом по контракту; проверить
+результат выделения. Нулевой count обрабатывать отдельно согласно протоколу:
+не выводить ошибку только из того, что `malloc(0)` вернул NULL. Размер out при
+отказе не использовать. При добавлении заголовка/терминатора проверить также
+сложение; эта функция проверяет только произведение.
 
-**Check:** Zero, one, exact budget, budget overflow and products above SIZE_MAX; errors never copy into stale/NULL buffers.
+**Проверить:** ноль, единица, ровно допустимый бюджет, превышение бюджета,
+произведение больше SIZE_MAX; ошибка не ведёт к копированию в старый/NULL-буфер.
 
 </details>
 
 <a id="cpp-lifetime"></a>
 
-## CPP-LIFETIME. A pointer or view outlives its owner
+<a id="cpp-lifetime-a-pointer-or-view-outlives-its-owner"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CPP-LIFETIME. Указатель/view переживает владельца
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'c_str\(|string_view|span|return.*data|return.*&' .
 ~~~
 
-Identify the data owner and destruction/reallocation points; inspect async callbacks and lambda captures.
+Найти владельца данных и его destruction/reallocation; проверить async callback и lambda captures.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A temporary string's c_str or a local buffer's string_view is returned.
+Возвращён c_str временной string или string_view локального буфера.
 
-**Fix:** Return an owning object/copy; transfer ownership through async completion. A view does not extend lifetime.
+**Исправление:** Вернуть владеющий объект/копию; при async передать владение до завершения, view сам по себе lifetime не продлевает.
 
-**Verification:** Results survive return, later calls do not corrupt them, and async work retains data until completion.
+**Проверка:** Результат существует после возврата, следующий вызов его не портит, async дожидается окончания.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```cpp
 // Vulnerable: the temporary string dies before the returned pointer is used.
@@ -369,10 +414,9 @@ const char* make_label(const std::string& name) {
 }
 ```
 
-**Patch: return an owning object, not a pointer into destroyed storage:**
+**Патч: вернуть владеющий объект, а не указатель в уничтоженное хранилище:**
 
 <!-- example: cpp-label -->
-
 ```cpp
 #include <string>
 
@@ -381,115 +425,131 @@ std::string make_label(const std::string& name) {
 }
 ```
 
-The caller stores std::string label = make_label(name). Its c_str may be passed to a synchronous API that does not retain the pointer past the string's lifetime. Async operations need ownership/copies. string_view alone neither prolongs lifetime nor fixes this issue.
+Вызывающий код хранит `std::string label = make_label(name);`. Его `c_str()`
+можно передать синхронному API, которое не удерживает указатель дольше жизни
+строки. Для асинхронной операции нужно передать владение/копию. `string_view`
+сам по себе не продлевает жизнь строки и не является исправлением.
 
-**Check:** Results remain valid after return and subsequent calls, including empty names and Unicode; async paths retain data through completion.
+**Проверить:** результат существует после выхода из функции; последовательные
+вызовы не меняют прошлые результаты; пустое имя и Unicode; асинхронный путь
+удерживает данные до завершения операции.
 
 </details>
 
 <a id="c-partial-io"></a>
 
-## C-PARTIAL-IO. TCP does not preserve message boundaries
+<a id="c-partial-io-tcp-does-not-preserve-message-boundaries"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-PARTIAL-IO. TCP не сохраняет границы сообщений
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'recv|read\(|send|write\(|Content-Length|length' .
 ~~~
 
-Compare frame length with accumulated bytes and review short-read/write loops, EINTR and EOF.
+Сверить frame length с накопленными байтами и циклы short read/write, EINTR/EOF.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-One recv is treated as a complete request, or a partial send causes the next frame to merge with a private response.
+Один recv принят за целый запрос; send передал только часть приватного ответа, следующий кадр склеился.
 
-**Fix:** Explicit framing, bounded accumulation, partial-operation handling and timeouts; retain the checker protocol.
+**Исправление:** Явный framing и ограниченный накопительный буфер, проверка частичных операций и timeout; не менять протокол checker.
 
-**Verification:** Byte-by-byte fragmentation, two coalesced frames, mid-frame EOF and normal messages.
+**Проверка:** Фрагментация по каждому байту, два кадра вместе, EOF посредине и обычное сообщение.
 
 <a id="c-signed-length"></a>
 
-## C-SIGNED-LENGTH. Signed lengths become huge size_t values
+<a id="c-signed-length-signed-lengths-become-huge-size_t-values"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-SIGNED-LENGTH. Знаковая длина становится большим size_t
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'ssize_t|size_t|uint32_t|int.*len|memcpy|recv' .
 ~~~
 
-Trace every cast between reading/parsing and allocation/indexing.
+Проследить все casts между чтением/разбором и allocation/index.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A negative read result or client integer is converted to unsigned before validation.
+Отрицательный read или пользовательский int приводится к unsigned до проверки.
 
-**Fix:** Check errors, sign and range before conversion; verify source/destination capacity.
+**Исправление:** Проверить error/sign/range до преобразования, сверить вместимость источника и приёмника.
 
-**Verification:** read=-1, EOF, negative fields, maximum and normal payloads.
+**Проверка:** read=-1, EOF, отрицательное поле, максимум и нормальный payload.
 
 <a id="c-double-free"></a>
 
-## C-DOUBLE-FREE. Multiple owners free the same object
+<a id="c-double-free-multiple-owners-free-the-same-object"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-DOUBLE-FREE. Несколько владельцев освобождают один объект
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'free\(|delete|unique_ptr|shared_ptr|goto.*fail' .
 ~~~
 
-Trace success/error cleanup and ownership transfers; look for two shared_ptr instances built from one raw pointer.
+Пройти success/error cleanup и передачу владения; найти два shared_ptr из одного raw pointer.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An error path and its caller both free an object, or reset destroys an object still in use.
+Error path и внешний caller освобождают объект дважды, либо reset уничтожает ещё используемый объект.
 
-**Fix:** One explicit owner/RAII with explicit ownership transfer; clearing one alias does not repair others.
+**Исправление:** Единый owner/RAII и явная передача владения; обнуление одного alias не исправляет остальные.
 
-**Verification:** Failure at every construction step, repeated cleanup and normal lifecycle.
+**Проверка:** Ошибка на каждом шаге создания, повторный cleanup, нормальный жизненный цикл.
 
 <a id="c-uninitialized"></a>
 
-## C-UNINITIALIZED. Exposing padding or uninitialized tails
+<a id="c-uninitialized-exposing-padding-or-uninitialized-tails"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-UNINITIALIZED. Выдача padding и незаполненного хвоста
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'malloc|struct|send|write|sizeof|memcpy' .
 ~~~
 
-Compare initialized fields with transmitted struct sizeof and padding.
+Сравнить реально заполненные поля с sizeof отправляемого struct и padding.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`send(fd, &record, sizeof record, ...)` exposes padding or previous contents.
+send(fd, &record, sizeof record, ...) выдаёт padding либо остаток предыдущего содержимого.
 
-**Fix:** Explicit field/length serialization and initialized buffers; never use native layout as an implicit wire protocol.
+**Исправление:** Явная сериализация полей и длины, инициализация буфера; не публиковать native layout как протокол.
 
-**Verification:** Different compiler/layout choices, short input and no uninitialized response bytes.
+**Проверка:** Разные компиляторы/layout, короткий ввод, отсутствие незаполненных байтов в ответе.
 
 <a id="c-tempfile-race"></a>
 
-## C-TEMPFILE-RACE. Temporary filename without atomic creation
+<a id="c-tempfile-race-temporary-filename-without-atomic-creation"></a>
 
-**Search:** scanner rule C-TEMPFILE-RACE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-TEMPFILE-RACE` for details. Regex: tmpnam/tempnam/mktemp. Custom filename schemes, reopening after mkstemp and directory TOCTOU need manual review.
+## C-TEMPFILE-RACE. Предсказуемое имя и check-then-open
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** скрипт, правило C-TEMPFILE-RACE. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-TEMPFILE-RACE. Regex: tmpnam/tempnam/mktemp. Самописные схемы имени, reopen после mkstemp и TOCTOU по каталогу остаются ручными.
+
+Дополнительный ручной поиск для непокрытых форм:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'tmpnam|mktemp|access\(|stat\(|fopen|open\(' .
 ~~~
 
-Trace existence-check → open and parent-directory permissions.
+Проследить промежуток existence check -> open и права родительского каталога.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A shared temporary filename is checked, then opened for overwrite through a replaced symlink.
+Имя в общем /tmp проверено, затем открыто с перезаписью по подменённой ссылке.
 
-**Fix:** Create a private file atomically, retain its fd, check errors/modes and close/remove it on all paths.
+**Исправление:** Атомарное создание mkstemp/open с O_EXCL и нужной политикой links, private temp dir, restrictive mode; descriptor-based работа.
 
-**Verification:** Concurrent operations get separate fds; existing files/symlinks are not overwritten.
+**Проверка:** Коллизия имени, symlink, параллельное создание, ошибка записи и cleanup.
 
-**Scanner example before:**
+
+**Сигнал сканера - пример до:**
 
 ~~~native
 char name[L_tmpnam];
@@ -497,7 +557,7 @@ tmpnam(name);
 FILE *f = fopen(name, "w");
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~native
 char name[] = "/tmp/app-XXXXXX";
@@ -507,286 +567,345 @@ unlink(name);
 /* use fd; close(fd) on every exit */
 ~~~
 
-Primary documentation: [reference 1](https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkstemp.html).
+Первичная документация: [документация 1](https://pubs.opengroup.org/onlinepubs/9799919799/functions/mkstemp.html).
 
 <a id="c-jit-return"></a>
 
-## C-JIT-RETURN. Not every JIT function path terminates
+<a id="c-jit-return-not-every-jit-function-path-terminates"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-JIT-RETURN. Не все пути JIT-функции завершаются
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'return|emit|jit|compile|bytecode' .
 ~~~
 
-Map function control-flow exits; a conditional return does not cover the other branch or fall-through.
+Построить выходы CFG функции: условный return не закрывает другую ветвь и fall-through.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** dcs, RuCTF author write-up: a conditional return was mistakenly considered sufficient and execution continued beyond the function. **Search:** Custom VMs/JITs/DSLs, searching for a return node rather than reachability analysis, and constants placed next to instructions.
+**Основание:** dcs, авторский разбор RuCTF: условный return ошибочно считался
+достаточным; выполнение продолжалось за телом функции.
+**Искать:** самодельные VM/JIT/DSL, проверка return через поиск узла вместо
+анализа достижимости, размещение констант рядом с инструкциями.
 
-**Fix:** Control-flow analysis requiring every reachable exit to return a value or terminate with a defined error. Separate code/data and validate indices/types before generation.
+**Исправление:** анализ графа потока: каждый достижимый выход обязан возвращать
+значение либо завершаться определённой ошибкой. Разделять код и данные,
+проверять индексы/типы до генерации.
 
-**Verification:** Both conditional branches, nesting, empty functions and normal computations. Disabling JIT entirely is acceptable only if the functional contract remains intact.
+**Проверка:** обе ветви условия, вложенные
+условия, пустая функция и штатные вычисления. Запретить JIT целиком можно
+только если сохранён функциональный контракт.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/dcs/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/dcs/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/dcs/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/dcs/README.md).
 
 <a id="c-header-secret"></a>
 
-## C-HEADER-SECRET. A special header branch changes a secret
+<a id="c-header-secret-a-special-header-branch-changes-a-secret"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-HEADER-SECRET. Особая ветка по заголовку меняет секрет
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'getenv|HTTP_USER_AGENT|SECRET_KEY|constructor' .
 ~~~
 
-Read init/constructor and debug/test branches; client headers must not change keys.
+Прочитать init/constructor и ветви debug/test: клиентский заголовок не должен менять ключ.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** reversaar, saarCTF C-source analysis: a special HTTP_USER_AGENT-linked path modified SECRET_KEY. **Search:** Constructor/init hooks, header getenv, magic constants, debug/test/admin branches in release builds and hidden signing switches.
+**Основание:** reversaar, анализ C-исходника saarCTF: специальный путь,
+связанный с HTTP_USER_AGENT, изменял SECRET_KEY.
+**Искать:** constructor/init-хуки, getenv заголовков, magic constants,
+debug/test/admin-ветки в release, скрытые переключатели подписи.
 
-**Fix:** Remove the unintended transition specifically; secret configuration must not depend on requests. Inspect startup code, not only routes.
+**Исправление:** удалить именно посторонний переход состояния; конфигурация секретов
+не зависит от клиентского запроса. Просмотреть код запуска, не только маршруты.
 
-**Verification:** Different headers do not change keys, privileges or storage format; normal initialization survives. There is no scanner signature for the specific magic value; manually trace input-to-secret relationships.
+**Проверка:** разные заголовки не меняют ключ, права и формат хранения; обычная
+инициализация сохранена. Сканер не содержит сигнатуры конкретного magic value;
+связь входа с секретом проверяется вручную.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/reversaar/service/src/array.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/reversaar/service/src/array.c).
 
-**Reference:** [primary source](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/reversaar/service/src/array.c).
+**Основание:** [первичный материал](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/reversaar/service/src/array.c).
 
 <a id="c-object-toctou"></a>
 
-## C-OBJECT-TOCTOU. Re-reading mutable references after authorization
+<a id="c-object-toctou-re-reading-mutable-references-after-authorization"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-OBJECT-TOCTOU. Проверили объект, затем заново прочитали изменяемую ссылку
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'background|fork|exec|open|read' .
 ~~~
 
-Find repeated mutable-object reads after checks/external calls; compare object identity and snapshots.
+Найти повторное чтение изменяемого объекта после проверки и внешнего вызова; сверить identity/snapshot.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**RuCTF / memos, author write-up.** An external operation occurred between checking background access and reading it; another request could replace the selected object.
+**RuCTF / memos, автор.** Между проверкой доступа к фону и чтением фона
+выполнялась внешняя операция; другой запрос мог заменить выбранный объект.
 
-**Fix:** Use the same validated snapshot/descriptor or atomically check its version before use.
+**Исправление:** работать с тем же проверенным снимком/дескриптором, либо атомарно
+проверять версию перед использованием.
 
-**Verification:** Barrier-controlled request interleaving and legitimate long-running operations.
+**Проверка:** контролируемое чередование
+двух запросов через барьер, штатная длительная обработка.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
 
 <a id="c-exec-failure"></a>
 
-## C-EXEC-FAILURE. Failed exec leaves a child on the server path
+<a id="c-exec-failure-failed-exec-leaves-a-child-on-the-server-path"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-EXEC-FAILURE. Ошибка exec оставляет дочерний процесс на серверном пути
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'fork|execve|execvp|waitpid' .
 ~~~
 
-Trace every fork/exec error and child termination, including oversized argument vectors.
+Пройти ветвь каждого отрицательного возврата fork/exec и завершение child, включая аргументы сверх лимита.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**RuCTF / memos, author write-up.** A child could continue server logic after execve failed.
+**RuCTF / memos, автор.** После неудачного execve дочерний процесс мог продолжить
+логику сервиса.
 
-**Fix:** Check fork/exec/wait; on child-side exec failure close extra descriptors and terminate with failing _exit.
+**Исправление:** проверять fork/exec/wait; после ошибки exec в дочерней ветви завершаться
+через _exit с ошибкой, закрывая лишние дескрипторы.
 
-**Verification:** Missing executables, excessive arguments and fork failure never create a second server.
+**Проверка:** исполняемый файл
+недоступен, аргументы превышают лимит, fork неуспешен - второй сервер не возникает.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/memos/README.md).
 
 <a id="cpp-cached-lifetime"></a>
 
-## CPP-CACHED-LIFETIME. Cached pointers survive object destruction
+<a id="cpp-cached-lifetime-cached-pointers-survive-object-destruction"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CPP-CACHED-LIFETIME. Кэш хранит указатель после освобождения объекта
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'cache|delete|free|flush|shared_ptr|weak_ptr' .
 ~~~
 
-Identify the cached pointer's owner and destruction point; trace method calls after eviction.
+Найти владельца cached pointer и момент освобождения; проследить вызов метода после eviction.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**RuCTF / perune, author write-up.** Subsequent cache traversal called a virtual method on a freed object.
+**RuCTF / perune, автор.** Последующий обход кэша вызывал виртуальный метод
+у освобождённого объекта.
 
-**Fix:** Explicit ownership, removal of every reference at destruction, safe handles/weak references or validated generation IDs.
+**Исправление:** явное владение, удаление всех ссылок при destruction, безопасные
+handles/weak references или проверяемый generation ID.
 
-**Verification:** Different create/delete/flush orderings and available sanitizers; absence of a crash proves nothing by itself.
+**Проверка:** разные порядки
+создания/удаления/flush, доступный sanitizer; не считать отсутствие падения
+доказательством.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/perune/readme.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/perune/readme.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/perune/readme.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/perune/readme.md).
 
 <a id="c-block-tail"></a>
 
-## C-BLOCK-TAIL. Four-byte block processing corrupts the tail
+<a id="c-block-tail-four-byte-block-processing-corrupts-the-tail"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-BLOCK-TAIL. Обработка блока по четыре байта портит хвост буфера
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'xor|chacha|uint32_t|length|remaining' .
 ~~~
 
-Check one-to-three-byte remainders with a four-byte stride against actual allocation.
+Проверить обработку остатка длины 1-3 байта при шаге четыре; сопоставить фактическую allocation.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ECSC / Diese HSM, author write-up.** XOR crossed the end when length was not word-aligned.
+**ECSC / Diese HSM, автор.** XOR проходил за конец при длине, не кратной слову.
 
-**Fix:** Complete blocks followed by a separately bounded tail; check alignment.
+**Исправление:** полные блоки плюс отдельный ограниченный хвост, проверка выравнивания.
 
-**Verification:** Lengths 0–9, buffer boundaries, canaries and valid nonces.
+**Проверка:** длины 0-9, края буфера, canary и допустимые nonce.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [source/write-up 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [source/write-up 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [исходник/разбор 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [исходник/разбор 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
 
-**Reference:** [primary source](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md).
+**Основание:** [первичный материал](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md).
 
 <a id="c-alloc-failure"></a>
 
-## C-ALLOC-FAILURE. Allocation failure becomes a NULL write
+<a id="c-alloc-failure-allocation-failure-becomes-a-null-write"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-ALLOC-FAILURE. Ошибка выделения памяти превращается в запись по NULL
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'malloc|calloc|alloc|memcpy' .
 ~~~
 
-Trace NULL/allocation failures to the first write, including custom allocators and firmware address spaces.
+Проследить NULL/ошибку allocation до первой записи, включая собственный allocator и адресное пространство firmware.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ECSC / Diese HSM, author and source.** An allocator result was unchecked while address zero was accessible in firmware.
+**ECSC / Diese HSM, автор + код.** Результат allocator не проверяется;
+в firmware адрес 0 доступен.
 
-**Fix:** Checked size arithmetic, message limits and allocation-failure handling across the entire chain.
+**Исправление:** checked size arithmetic, лимит сообщения, обработка allocation failure
+во всей цепочке.
 
-**Verification:** Failure at every allocation and truncated packets.
+**Проверка:** отказ каждого выделения и усечённый пакет.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [source/write-up 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [source/write-up 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [исходник/разбор 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [исходник/разбор 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
 
-**Reference:** [primary source](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md).
+**Основание:** [первичный материал](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md).
 
 <a id="c-fd-nul"></a>
 
-## C-FD-NUL. Descriptor leaks amplify a read_line off-by-one
+<a id="c-fd-nul-descriptor-leaks-amplify-a-read_line-off-by-one"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-FD-NUL. Утечка fd усиливает off-by-one в read_line
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'read_line|open|close|fopen|fclose' .
 ~~~
 
-Inspect descriptor closure on login failures and NUL writes when buffers are full.
+Просмотреть закрытие fd в ветвях login error и запись NUL при заполненном буфере.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ECSC / CookingNonna, author write-up.** Failed login leaked an fd while a terminator could be written beyond a full buffer.
+**ECSC / CookingNonna, автор.** Неудачный login оставлял fd, а терминатор
+мог записаться за полный буфер.
 
-**Fix:** Unified cleanup for every failure; reserve NUL space, check read/EOF and compare open results with -1.
+**Исправление:** единый cleanup для всех отказов; резервировать байт под NUL, проверять
+read/EOF и возвращаемые значения open относительно -1.
 
-**Verification:** Capacities 0/1/max, long lines and repeated failures without descriptor growth.
+**Проверка:** capacity 0/1/max, длинная строка, серия отказов без роста fd.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/CookingNonna/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/CookingNonna/README.md).
 
-**Reference:** [primary source](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/CookingNonna/README.md).
+**Основание:** [первичный материал](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/CookingNonna/README.md).
 
 <a id="c-reentrancy-auth"></a>
 
-## C-REENTRANCY-AUTH. A callback runs between authorization and signing
+<a id="c-reentrancy-auth-a-callback-runs-between-authorization-and-signing"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-REENTRANCY-AUTH. Callback между auth-проверкой и подписью
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'callback|SignToken|Len|ByRef' .
 ~~~
 
-Find user callbacks after ownership checks; determine whether they can mutate the signed arguments.
+Найти вызов пользовательской функции после owner-check; проверить, может ли она менять подписываемые аргументы.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ICC / MaScroll, author write-up.** An overridable Len changed a reference argument after its owner check.
+**ICC / MaScroll, автор.** Переопределяемый Len мог изменить аргумент по ссылке
+после проверки владельца.
 
-**Fix:** Validate an immutable copy; do not invoke user code between verification and the sensitive operation.
+**Исправление:** валидировать неизменяемую копию, не вызывать пользовательский код
+между проверкой и чувствительной операцией.
 
-**Verification:** A callback changes the original, but only the checked copy is signed.
+**Проверка:** callback изменяет исходный объект, но подписывается только проверенный.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
 
-**Reference:** [primary source](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
+**Основание:** [первичный материал](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
 
 <a id="c-builtin-types"></a>
 
-## C-BUILTIN-TYPES. One builtin overload omits argument-type checks
+<a id="c-builtin-types-one-builtin-overload-omits-argument-type-checks"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-BUILTIN-TYPES. Не проверен тип аргумента в одной перегрузке builtin
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'FastRand|CryptoRand|variant|overload|builtin' .
 ~~~
 
-Compare every overload's argument types, including the common first argument and error paths.
+Сравнить типы всех аргументов каждой перегрузки, включая общий первый аргумент и error path.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ICC / MaScroll, author write-up.** One generator call form skipped type checks; the resulting memory error affected cryptographic state.
+**ICC / MaScroll, автор.** Вариант вызова генератора пропускал проверку типа,
+а ошибка памяти затрагивала криптографическое состояние.
 
-**Fix:** Uniform type/arity/length validation for every overload, with correct ownership and buffers.
+**Исправление:** единая проверка type/arity/length для всех перегрузок, корректные
+владение и буферы.
 
-**Verification:** Type/argument-count matrix; errors never modify RNG or signing state.
+**Проверка:** матрица типов и числа аргументов;
+ошибка не меняет состояние RNG/подписи.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
 
-**Reference:** [primary source](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
+**Основание:** [первичный материал](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
 
 <a id="c-hash-index"></a>
 
-## C-HASH-INDEX. Hash-table indices exceed the upper boundary
+<a id="c-hash-index-hash-table-indices-exceed-the-upper-boundary"></a>
 
-**Search:** manual review; no separate scanner rule.
+## C-HASH-INDEX. Индекс хеш-таблицы сдвинут за верхнюю границу
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'TABLE_SIZE|capacity|hash|table\[' .
 ~~~
 
-Calculate min/max indices and array size for every branch; inspect insert/find and representation changes.
+Для каждой ветви вычислить min/max индекса и размер массива; проверить insert/find и переключение структур.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**DEF CON / bisbee, source and header.** A remainder modulo TABLE_SIZE plus one indexed a TABLE_SIZE-element array.
+**DEF CON / bisbee, код + header.** Формула остаток по TABLE_SIZE плюс один
+используется для массива из TABLE_SIZE элементов.
 
-**Fix:** Keep indices in [0, capacity), consistently across operations; review list/hashmap migration and update counters.
+**Исправление:** индекс в диапазоне [0, capacity), согласованный со всеми операциями;
+проверить перенос между list и hashmap и счётчики при обновлении.
 
-**Verification:** First/last buckets, collisions, repeated updates and representation switching.
+**Проверка:** первый/последний bucket, collision, повторное обновление, переключение
+представления.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [source/write-up 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [source/write-up 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [source/write-up 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [source/write-up 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [source/write-up 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [исходник/разбор 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [исходник/разбор 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [исходник/разбор 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [исходник/разбор 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [исходник/разбор 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
 
-**Reference:** [primary source](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
+**Основание:** [первичный материал](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
 
 <a id="c-strncpy"></a>
 
-## C-STRNCPY. strncpy may omit NUL termination
+<a id="c-strncpy-strncpy-may-omit-nul-termination"></a>
 
-**Search:** scanner rule C-STRNCPY. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain C-STRNCPY` for details. Regex: strncpy. Review later NUL termination and actual capacity; memcpy without length checks is not a fix.
+## C-STRNCPY. strncpy может оставить строку без NUL
 
-**Vulnerable example:** strncpy does not terminate sufficiently long input; later string APIs read beyond the buffer.
+**Поиск:** скрипт, правило C-STRNCPY. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain C-STRNCPY. Regex: strncpy. Наличие последующего NUL и фактическая ёмкость анализируются вручную; memcpy без проверки длины не является исправлением.
+
+**Уязвимый вариант:** strncpy при длинном входе не добавляет терминатор; последующее строковое API читает за буфером.
 
 ~~~native
 strncpy(out, input, sizeof out);
 puts(out);
 ~~~
 
-**Fix:** Choose reject-too-long or explicit bounded truncation with NUL space; use explicit lengths for binary data.
+**Исправление:** Выбрать контракт: отклонять слишком длинный вход или явно обрезать с местом для NUL. Для бинарных данных передавать длину вместо строкового API.
 
 ~~~native
 size_t n = bounded_input_length;
@@ -795,23 +914,25 @@ memcpy(out, input, n);
 out[n] = '\0';
 ~~~
 
-**Verification:** Test empty/capacity-1/capacity/capacity+1; truncation cannot change identity.
+**Проверка:** Вход длиной capacity-1/capacity/capacity+1 и пустой не вызывает чтения за границей; тихое усечение не меняет identity.
 
-Primary documentation: [reference 1](https://pubs.opengroup.org/onlinepubs/9799919799/functions/strncpy.html).
+Первичная документация: [документация 1](https://pubs.opengroup.org/onlinepubs/9799919799/functions/strncpy.html).
 
 <a id="c-copy-length"></a>
 
-## C-COPY-LENGTH. Copy length comes directly from source strlen
+<a id="c-copy-length-copy-length-comes-directly-from-source-strlen"></a>
 
-**Search:** scanner rule C-COPY-LENGTH. Use `--explain C-COPY-LENGTH` for the exact detector contract. Regex with lexical exclusions: memcpy/memmove with simple first two arguments and strlen/strnlen directly as length. Does not prove missing preceding checks or actual buffer sizes; custom same-named APIs and macros require review.
+## C-COPY-LENGTH. Длина копирования берётся напрямую из strlen источника
 
-**Vulnerable example:**
+**Поиск:** правило сканера C-COPY-LENGTH. Точный контракт детектора: `--explain C-COPY-LENGTH`. Regex с лексическими исключениями: memcpy/memmove с простыми первыми двумя аргументами и strlen/strnlen непосредственно в выражении длины. Не доказывает отсутствие предшествующих проверок или фактические размеры буферов; одноимённые пользовательские API и макросы требуют проверки.
+
+**Уязвимый вариант:**
 
 ~~~native
 memcpy(dest, input, strlen(input) + 1);
 ~~~
 
-**Fix:** Validate readable source length and destination capacity before copying, including terminator and arithmetic overflow.
+**Исправление:** Перед копированием проверьте доступную для чтения длину источника и ёмкость назначения, включая завершающий символ и переполнение арифметики.
 
 ~~~native
 size_t n = validated_length;
@@ -819,6 +940,6 @@ if (n >= capacity) return ERROR;
 memcpy(dest, input, n + 1);
 ~~~
 
-**Verification:** Test empty input, capacity boundaries, missing terminator and overflow using sanitizers where available.
+**Проверка:** Проверьте пустой ввод, границы ёмкости, отсутствие завершающего символа и переполнение; по возможности используйте санитайзеры.
 
-[Primary reference 1](https://pubs.opengroup.org/onlinepubs/9799919799/functions/memcpy.html)
+[Первичный источник 1](https://pubs.opengroup.org/onlinepubs/9799919799/functions/memcpy.html)

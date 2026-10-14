@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two saved defense_scan JSON reports offline; never open source paths."""
+"""Сравнение двух сохраненных отчетов сканера без чтения исходников."""
 
 import argparse
 from datetime import datetime
@@ -14,12 +14,12 @@ import sys
 
 MAX_REPORT_BYTES = 32 * 1024 * 1024
 MAX_FINDINGS = 100000
-SCOPE_SCHEMA = "durkahelper.scanner-scope.v2"
-LEGACY_SCOPE_SCHEMA = "durkahelper.scanner-scope.v1"
+SCOPE_SCHEMA = "wahrwelt.scanner-scope.v2"
+LEGACY_SCOPE_SCHEMA = "wahrwelt.scanner-scope.v1"
 PATH_SEMANTICS = "root-relative-posix.v1"
-NOTE = ("Matches exact path, line and rule ID without comparing source code. Moving lines creates a "
-        "new/not-observed pair. A disappearing signal does not prove a fix. "
-        "A clean comparison requires identical verified scopes.")
+NOTE = ("Сопоставляются путь, строка и правило без сравнения исходников. Перенос строк дает пару "
+        "новая/не обнаружена. Исчезновение сигнала не доказывает исправление. "
+        "Полное сравнение требует одинаковой подтвержденной области проверки.")
 
 
 def file_identity(metadata):
@@ -116,12 +116,8 @@ def load_report(filename, max_bytes=MAX_REPORT_BYTES):
     requested_metadata = requested.lstat()
     if stat.S_ISLNK(requested_metadata.st_mode):
         raise ValueError("symlink report")
-    # Resolve ordinary symlinked ancestors (notably macOS /tmp -> /private/tmp)
-    # before the no-follow leaf open.  This prevents an ancestor swap from
-    # redirecting the descriptor while preserving the leaf-symlink boundary.
-    # Path.resolve() may require extra handle permissions on Windows.  The
-    # macOS/Linux branch canonicalizes ancestors; Windows retains the absolute
-    # path after the explicit leaf-symlink check.
+    # Канонизируем родительские каталоги, но не конечную ссылку.
+    # На Windows resolve может требовать дополнительных прав на дескриптор.
     path = requested if os.name == "nt" else requested.parent.resolve(strict=True) / requested.name
     canonical_metadata = path.lstat()
     if stat.S_ISLNK(canonical_metadata.st_mode):
@@ -156,7 +152,8 @@ def load_report(filename, max_bytes=MAX_REPORT_BYTES):
 
 
 def validate_report(data):
-    if not isinstance(data, dict) or data.get("tool") != "DurkaHelper defense_scan":
+    if not isinstance(data, dict) or data.get("tool") not in {
+            "wahrwelt defense_scan"}:
         raise ValueError("not a scanner report")
     if data.get("offline") is not True or type(data.get("partial")) is not bool:
         raise ValueError("invalid report status")
@@ -193,7 +190,7 @@ def validate_report(data):
         key = (path, line, rule)
         if key in indexed:
             raise ValueError("duplicate finding")
-        # Do not copy source text, patches, arbitrary descriptions or issue payloads.
+        # Не переносим исходники, патчи и произвольные данные из отчета.
         indexed[key] = {"path": path, "line": line, "rule": rule}
     return {"version": version, "created_at": created_at, "scope": scope,
             "scope_sha256": scope["sha256"] if scope is not None else None,
@@ -218,7 +215,7 @@ def compare_reports(before, after):
     added = [new[key] for key in sorted(new.keys() - old.keys())]
     existing = [new[key] for key in sorted(new.keys() & old.keys())]
     absent = [old[key] for key in sorted(old.keys() - new.keys())]
-    return {"tool": "DurkaHelper defense_diff", "offline": True,
+    return {"tool": "wahrwelt defense_diff", "offline": True,
             "matching": ["path", "line", "rule"], "scope_verified": scope_verified,
             "before": {"version": before["version"], "partial": before["partial"],
                        "issue_count": before["issue_count"],
@@ -239,12 +236,12 @@ def printable(value):
 def positive(value):
     number = int(value)
     if number <= 0:
-        raise argparse.ArgumentTypeError("expected a positive integer")
+        raise argparse.ArgumentTypeError("ожидалось положительное целое число")
     return number
 
 
 def configure_text_output():
-    """Keep CLI diagnostics printable on legacy Windows code pages."""
+    """Сохраняем читаемый вывод в старых кодировках Windows."""
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
@@ -256,37 +253,37 @@ def configure_text_output():
 
 def main(argv=None):
     configure_text_output()
-    parser = argparse.ArgumentParser(description="Compare two defense_scan JSON reports without reading source files.")
-    parser.add_argument("before", help="previous JSON report")
-    parser.add_argument("after", help="current JSON report")
-    parser.add_argument("--json", action="store_true", help="structured JSON result")
-    parser.add_argument("--show-existing", action="store_true", help="also show unchanged signals in text output")
-    parser.add_argument("--max-bytes", type=positive, default=MAX_REPORT_BYTES, help="size limit for each report; default 32 MiB")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("before", help="предыдущий JSON-отчет")
+    parser.add_argument("after", help="текущий JSON-отчет")
+    parser.add_argument("--json", action="store_true", help="результат в JSON")
+    parser.add_argument("--show-existing", action="store_true", help="показать также неизменившиеся находки")
+    parser.add_argument("--max-bytes", type=positive, default=MAX_REPORT_BYTES, help="лимит размера каждого отчета; по умолчанию 32 MiB")
     args = parser.parse_args(argv)
     try:
         report = compare_reports(load_report(args.before, args.max_bytes), load_report(args.after, args.max_bytes))
     except (OSError, ValueError, OverflowError, RecursionError, MemoryError) as exc:
-        # Exception messages can contain report contents, paths or secret fields.
+        # Сообщение исключения может содержать секреты из отчета.
         error = {"error": "invalid_or_unreadable_report", "type": type(exc).__name__, "exit_code": 2}
-        print(json.dumps(error) if args.json else "ERROR: invalid or unreadable report (" + type(exc).__name__ + ").")
+        print(json.dumps(error) if args.json else "Ошибка: некорректный или недоступный отчет (" + type(exc).__name__ + ").")
         return 2
     if args.json:
         print(json.dumps(report, ensure_ascii=True, indent=2))
     else:
-        for field, label in (("new", "NEW"), ("not_observed", "NOT OBSERVED"), ("existing", "EXISTING")):
+        for field, label in (("new", "НОВАЯ"), ("not_observed", "НЕ ОБНАРУЖЕНА"), ("existing", "ПРЕЖНЯЯ")):
             if field == "existing" and not args.show_existing:
                 continue
             for finding in report[field]:
                 print(f"{label}: {printable(finding['path'])}:{finding['line']} [{finding['rule']}]")
         counts = report["counts"]
-        print(f"New: {counts['new']}; existing: {counts['existing']}; not observed: {counts['not_observed']}.")
+        print(f"Новых: {counts['new']}; прежних: {counts['existing']}; не обнаружено: {counts['not_observed']}.")
         if report["warnings"]:
-            descriptions = {"before_partial": "previous scan is partial",
-                            "after_partial": "current scan is partial",
-                            "scanner_version_changed": "scanner versions differ",
-                            "scope_unverified": "scope is missing or unverified",
-                            "scope_changed": "report scopes differ"}
-            print("Incomplete comparison: " + ", ".join(descriptions[item] for item in report["warnings"]))
+            descriptions = {"before_partial": "предыдущая проверка неполная",
+                            "after_partial": "текущая проверка неполная",
+                            "scanner_version_changed": "версии сканера различаются",
+                            "scope_unverified": "область проверки неизвестна",
+                            "scope_changed": "область проверки изменилась"}
+            print("Неполное сравнение: " + ", ".join(descriptions[item] for item in report["warnings"]))
         print(NOTE)
     return report["exit_code"]
 

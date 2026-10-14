@@ -1,0 +1,64 @@
+rules:
+  - id: wahrwelt.python.request-url-to-http
+    languages:
+      - python
+    mode: taint
+    severity: WARNING
+    message: >-
+      Данные HTTP-запроса достигают URL-загрузчика. Проверьте SSRF и ограничения адресов.
+    metadata:
+      category: security
+      cwe: CWE-918
+      confidence: review
+    pattern-sources:
+      - pattern: $REQ.args.get(...)
+      - pattern: $REQ.args[...]
+      - pattern: $REQ.query_params.get(...)
+      - pattern: $REQ.query_params[...]
+      - pattern: $REQ.GET.get(...)
+      - pattern: $REQ.GET[...]
+    pattern-sinks:
+      - patterns:
+          - pattern: requests.get($URL, ...)
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: requests.post($URL, ...)
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: requests.request($METHOD, $URL, ...)
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: httpx.get($URL, ...)
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: httpx.post($URL, ...)
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: httpx.request($METHOD, $URL, ...)
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: urllib.request.urlopen($URL, ...)
+          - focus-metavariable: $URL
+
+  - id: wahrwelt.javascript.request-to-sql
+    languages:
+      - javascript
+      - typescript
+    mode: taint
+    severity: WARNING
+    message: >-
+      Данные запроса достигают SQL-вызова. Проверьте связывание параметров.
+    metadata:
+      category: security
+      cwe: CWE-89
+      confidence: review
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+    pattern-sinks:
+      - patterns:
+          - pattern: $DB.query($SQL, ...)
+          - focus-metavariable: $SQL
+      - patterns:
+          - pattern: $DB.execute($SQL, ...)
+          - focus-metavariable: $SQL

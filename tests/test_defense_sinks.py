@@ -1,4 +1,4 @@
-"""Keyword sink forms and literal-only SQL/XPath expression regressions."""
+"""Именованные аргументы опасных вызовов и литералы SQL/XPath."""
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -63,7 +63,7 @@ class KeywordSinkTests(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertNotIn(rid, self.ids(source))
-        # The established tail-name heuristics also warn for custom methods.
+        # Эвристика по окончанию имени также отмечает пользовательские методы.
         self.assertIn("PY-TEMPLATE", self.ids("custom.from_string(source=unknown)"))
         self.assertIn("PY-FILE", self.ids("custom.send_file(path_or_file=unknown)"))
 
@@ -97,8 +97,8 @@ class KeywordSinkTests(unittest.TestCase):
         self.assertIn("PY-FILE", self.ids("send_file(**{**options, 'path_or_file': user_path})"))
         self.assertNotIn("PY-TEMPLATE", self.ids(
             "from flask import render_template_string as render\nrender=custom_parser\nrender(source=user_template)"))
-        # Access control and redirect policies are not proved by syntax. These
-        # corrected shapes deliberately retain a review signal.
+        # Синтаксис не доказывает корректность прав и перенаправлений.
+        # Исправленные примеры все еще требуют ручной проверки.
         self.assertIn("PY-FILE", self.ids(
             "record=load_owned_record(file_id, current_user.id)\nsend_file(path_or_file=record.storage_path)"))
         self.assertIn("PY-REDIRECT", self.ids(
@@ -108,8 +108,8 @@ class KeywordSinkTests(unittest.TestCase):
         self.assertNotIn("PY-SQL", self.ids("db.execute(f'SELECT {{literal}}')"))
         self.assertNotIn("PY-XPATH", self.ids("tree.xpath(f'')"))
         self.assertIn("PY-SQL", self.ids("query=query+' suffix'\ndb.execute(query)"))
-        # A FormattedValue remains dynamic even when its own value is literal;
-        # this intentionally avoids general Python constant evaluation.
+        # FormattedValue считается динамическим даже с литералом внутри.
+        # Произвольные константные выражения Python не вычисляются.
         self.assertIn("PY-SQL", self.ids('db.execute(f"SELECT {1}")'))
 
     def test_keyword_findings_have_locations_and_documentation(self):

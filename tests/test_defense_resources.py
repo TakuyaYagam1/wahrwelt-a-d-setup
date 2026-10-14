@@ -1,4 +1,4 @@
-"""Bounded analysis and report regressions for inert adversarial source text."""
+"""Лимиты анализа и отчетов на специально подобранных исходниках."""
 import contextlib
 import importlib.util
 import io
@@ -44,8 +44,8 @@ class ResourceTests(unittest.TestCase):
             hits, issues = scanner.scan_text(source, "shell", self.rules)
             self.assertEqual(("JS-TLS", 2) in hits, expected)
             self.assertEqual(issues, [])
-        # Both lines fit individually; their combined window formerly ended
-        # in the middle of the second scalar, turning 0x into 0.
+        # Строки по отдельности помещаются в окно. Раньше их объединение
+        # обрезало второй скаляр посередине, превращая 0x в 0.
         first = "#" + "a" * 6000 + "\n"
         source = first + " " * (8192 - len(first) - len(ENV)) + ENV + "x\n"
         hits, issues = scanner.scan_text(source, "shell", self.rules)

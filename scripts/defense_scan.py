@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Offline, read-only source triage. Python 3.10+, standard library only.
+"""Локальная проверка исходников без записи. Только стандартная библиотека.
 
-Never imports or executes scanned code. Rules are loaded only from the toolkit's
-own rules directory, never discovered inside the target. No network/update API.
+Код проекта не импортируется и не запускается. Правила берутся только из этого
+репозитория; поиск правил внутри проверяемого проекта не выполняется.
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ import io
 import unicodedata
 
 VERSION = "1.8.0"
-SCOPE_SCHEMA = "durkahelper.scanner-scope.v2"
-CONTEXT_SCHEMA = "durkahelper.scanner-context.v1"
+SCOPE_SCHEMA = "wahrwelt.scanner-scope.v2"
+CONTEXT_SCHEMA = "wahrwelt.scanner-context.v1"
 SEMANTIC_REVISION = "bounded-source-signals.v3"
 INFRASTRUCTURE = {"docker-desktop", "compose", "vulnbox", "team-lan", "s4dfarm", "neo", "packmate"}
 PATH_SEMANTICS = "root-relative-posix.v1"
@@ -86,7 +86,7 @@ def _canonical_json(value):
 
 
 def validate_context(value=None):
-    """Allow only non-secret context enums; context never filters detectors."""
+    """Контекст содержит только разрешенные значения и не отключает правила."""
     if value is None:
         value = {"schema": CONTEXT_SCHEMA, "infrastructure": [], "role": "both"}
     if not isinstance(value, dict) or set(value) != {"schema", "infrastructure", "role"}:
@@ -115,16 +115,16 @@ def load_context(filename):
 
 
 def review_metadata(rule, context):
-    """Return authored explanations only, never strings taken from the target."""
+    """Пояснения берутся из правил, а не из проверяемых исходников."""
     notes = []
     active = set(context["infrastructure"])
     family = rule["family"]
     if active & {"compose", "docker-desktop"} and family == "container-isolation":
-        notes.append("Review this setting in the resolved deployment model; source text is not runtime evidence.")
+        notes.append("Проверьте эту настройку в итоговой конфигурации; исходный текст не подтверждает поведение runtime.")
     if active & {"team-lan", "s4dfarm", "neo", "packmate"} and family in {"authentication", "secret-handling", "network-exposure"}:
-        notes.append("Check access from a separate authorized LAN client and keep credentials out of logs and broadcasts.")
+        notes.append("Проверьте доступ с отдельного разрешенного клиента LAN; не выводите учетные данные в логи и трансляцию.")
     if "vulnbox" in active and family in {"injection", "file-access", "authentication"}:
-        notes.append("Verify the service contract and checker behavior before applying a patch to a Vulnbox service.")
+        notes.append("До изменения сервиса проверьте его контракт и поведение проверяющей системы.")
     return {"family": family, "cwe": list(rule["cwe"]),
             "review_priority": "high" if notes else rule["review_priority"],
             "signal_kind": rule["signal_kind"], "limitations": rule["limitations"],
@@ -132,7 +132,7 @@ def review_metadata(rule, context):
 
 
 def rules_fingerprint(rules):
-    """Hash only authored rule data, never runtime regex objects."""
+    """Хешируем данные правил без скомпилированных регулярных выражений."""
     portable = []
     for rule in sorted(rules, key=lambda item: item["id"]):
         portable.append({key: value for key, value in rule.items()
@@ -141,10 +141,10 @@ def rules_fingerprint(rules):
 
 
 def scan_scope(root, rules, exclude, max_bytes, max_files, max_findings, context=None):
-    """Return a deterministic, non-secret description of scan comparability."""
+    """Описание области проверки для сравнения отчетов, без секретов."""
     normalized_root = unicodedata.normalize("NFC", os.path.normcase(str(root)))
     root_digest = hashlib.sha256(
-        ("durkahelper-root-v1\0" + normalized_root).encode(
+        ("wahrwelt-root-v1\0" + normalized_root).encode(
             "utf-8", errors="surrogatepass"
         )
     ).hexdigest()
@@ -178,12 +178,12 @@ def language(path):
 
 
 class PythonSignals(ast.NodeVisitor):
-    """Syntactic signals only. No claim of type resolution or data-flow analysis."""
+    """Синтаксические признаки без вывода типов и анализа потоков данных."""
 
     def __init__(self):
         self.aliases = {}
-        # Only immutable scalar/string-expression facts from straight-line code.
-        # No mutable dict/list propagation, execution or interprocedural analysis.
+        # Учитываем только неизменяемые скалярные факты в линейном коде.
+        # Не вычисляем код, изменяемые коллекции и связи между функциями.
         self.values = {}
         self.hits = set()
         self.issues = set()
@@ -194,10 +194,9 @@ class PythonSignals(ast.NodeVisitor):
 
     @staticmethod
     def literal_dict(node):
-        """Known keys of an inline dict, respecting last-write-wins unpacking.
+        """Ключи литерала словаря с учетом порядка распаковки.
 
-        Unknown spreads/keys invalidate earlier facts; no dict variable is
-        evaluated or treated as an immutable copy of a mutable object.
+        Неизвестные ключи отменяют предыдущие факты. Переменные не вычисляются.
         """
         result = {}
         if not isinstance(node, ast.Dict):
@@ -239,7 +238,7 @@ class PythonSignals(ast.NodeVisitor):
         return self.TAR_FACTORIES.get(factory, self.INSTANCE_FACTORIES.get(factory, ""))
 
     def known_binding(self, node):
-        """Whether the new narrow detectors have an explicit local name fact."""
+        """Есть ли для имени явный локальный факт."""
         if isinstance(node, ast.Name):
             return node.id in self.aliases and self.aliases[node.id] != "<local>"
         if isinstance(node, ast.Attribute):
@@ -286,7 +285,7 @@ class PythonSignals(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node):
         if node.value is not None:
-            # Reuse assignment handling, retaining the original line number.
+            # Повторно используем обработку присваивания, сохраняя номер строки.
             assignment = ast.Assign(targets=[node.target], value=node.value)
             ast.copy_location(assignment, node)
             self.visit_Assign(assignment)
@@ -306,8 +305,8 @@ class PythonSignals(ast.NodeVisitor):
             self.forget(target)
 
     def visit_branch(self, node):
-        # Do not carry scalar facts across branches, loops, exception handlers,
-        # comprehensions or context managers. Scan each statement list locally.
+        # Факты не переходят через ветвления, циклы, обработчики исключений,
+        # генераторы и менеджеры контекста. Каждый блок проверяется отдельно.
         self.values = {}
         saved = self.aliases.copy()
         for _, value in ast.iter_fields(node):
@@ -323,7 +322,7 @@ class PythonSignals(ast.NodeVisitor):
         self.values = {}
 
     def invalidate_region_aliases(self, node, saved):
-        # Any store/import in a conditional region makes that alias uncertain.
+        # Присваивание или импорт внутри условия делает псевдоним неоднозначным.
         self.aliases = saved
         for child in ast.walk(node):
             if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
@@ -333,9 +332,8 @@ class PythonSignals(ast.NodeVisitor):
                     self.aliases[alias.asname or alias.name.split(".")[0]] = "<local>"
 
     def visit_context(self, node, *, asynchronous):
-        # Retain only known constructor types with the matching context API.
-        # Scalar facts never cross a context manager; __enter__/__exit__ may
-        # affect application state and are never executed by this scanner.
+        # Сохраняем лишь известные конструкторы с подходящим API контекста.
+        # __enter__/__exit__ могут менять состояние; сканер их не исполняет.
         allowed = {"httpx.AsyncClient"} if asynchronous else {"tarfile.TarFile", "requests.Session", "httpx.Client"}
         saved = self.aliases.copy()
         self.values = {}
@@ -395,8 +393,8 @@ class PythonSignals(ast.NodeVisitor):
         saved, saved_values = self.aliases.copy(), self.values.copy()
         auth_seen = False
         for decorator in node.decorator_list:
-            # Decorators are listed outermost first. Flask's registration
-            # decorator must wrap the authentication decorator, not vice versa.
+            # Внешние декораторы идут первыми. Декоратор маршрута Flask
+            # должен оборачивать декоратор аутентификации.
             if self.name(decorator) == "flask_login.login_required" and self.known_binding(decorator):
                 auth_seen = True
             if (auth_seen and isinstance(decorator, ast.Call)
@@ -412,7 +410,7 @@ class PythonSignals(ast.NodeVisitor):
             if default is not None:
                 self.visit(default)
         self.values = {}
-        # Parameters shadow imports. Function-local scalar facts do not escape.
+        # Параметры скрывают импорты. Факты функции не выходят за ее границы.
         arguments = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
         arguments += [arg for arg in (node.args.vararg, node.args.kwarg) if arg]
         for arg in arguments:
@@ -453,8 +451,7 @@ class PythonSignals(ast.NodeVisitor):
 
     @staticmethod
     def literal_string(node):
-        # Recognize syntax only: no evaluation, formatting, arbitrary constant
-        # folding or recursive expansion of names (which may be self-referential).
+        # Проверяем синтаксис без вычислений и рекурсивного раскрытия имен.
         if isinstance(node, ast.Constant):
             return isinstance(node.value, str)
         if isinstance(node, ast.JoinedStr):
@@ -481,11 +478,10 @@ class PythonSignals(ast.NodeVisitor):
             self.hit("CFG-COOKIE-FLAGS", node)
 
     def psycopg_sql(self, node, depth=0, active=None):
-        """Return safe/unsafe/unknown for a narrow, imported composable tree.
+        """Оцениваем дерево SQL-композиции: safe, unsafe или unknown.
 
-        SQL() never escapes its argument. Only literal SQL snippets and known
-        quoting constructors are suppressed; unknown pieces remain reviewable.
-        This says nothing about authorization to select an identifier.
+        SQL() не экранирует аргумент. Исключаем только литералы и известные
+        конструкторы экранирования. Права на выбор идентификатора не проверяются.
         """
         node = self.resolved(node)
         active = set() if active is None else active
@@ -526,8 +522,8 @@ class PythonSignals(ast.NodeVisitor):
         self.hits.add((rule, node.lineno))
 
     def visit_Assert(self, node):
-        # Runtime security checks must survive python -O; ordinary test asserts
-        # are deliberately omitted by this name-based heuristic.
+        # Защитные проверки должны работать с python -O.
+        # Обычные тестовые assert исключены этой эвристикой по имени.
         sensitive = re.compile(r"(?:auth|permission|owner|admin|token|session|password|allowed)", re.I)
         if any(isinstance(item, ast.Name) and sensitive.search(item.id)
                or isinstance(item, ast.Attribute) and sensitive.search(item.attr)
@@ -567,8 +563,8 @@ class PythonSignals(ast.NodeVisitor):
         if (self.known_binding(node.func) and name.rsplit(".", 1)[0] in {"logging", "logging.Logger", "flask.Flask.logger"}
                 and tail in {"debug", "info", "warning", "warn", "error", "exception", "critical", "log"}):
             sensitive = {"password", "passwd", "secret", "token", "access_token", "refresh_token", "api_key", "authorization"}
-            # Only direct values/format expressions, not arguments to a
-            # potential redaction/hash helper. No source text is exported.
+            # Только прямые значения, без аргументов функций очистки или хеша.
+            # Исходный текст в отчет не попадает.
             def exposes(value):
                 if isinstance(value, ast.Name):
                     return value.id.lower() in sensitive
@@ -612,8 +608,8 @@ class PythonSignals(ast.NodeVisitor):
                     "joblib.load", "pandas.read_pickle"}:
             self.hit("PY-DESERIALIZE", node)
         if name in {"numpy.load", "numpy.lib.format.read_array"}:
-            # These APIs default to rejecting pickle; signal only an explicit
-            # opt-in. Starred argv prevent a reliable positional index.
+            # Эти API запрещают pickle по умолчанию; ищем явное разрешение.
+            # Распаковка аргументов мешает определить позиционный индекс.
             position = 2 if name == "numpy.load" else 1
             allow_pickle = kwargs.get("allow_pickle")
             if (allow_pickle is None and len(node.args) > position
@@ -659,8 +655,8 @@ class PythonSignals(ast.NodeVisitor):
             jwt_args = kwargs.copy()
             valid_binding = True
             if known_modern:
-                # Generic jwt.decode is version-dependent: PyJWT 1.x placed
-                # verify third. Only these exact APIs have this known layout.
+                # В PyJWT 1.x verify был третьим аргументом.
+                # Такое расположение известно только для этих точных API.
                 for argument, position in (("algorithms", 2), ("options", 3)):
                     if (len(node.args) > position
                             and not any(isinstance(arg, ast.Starred) for arg in node.args[:position + 1])):
@@ -732,10 +728,9 @@ class PythonSignals(ast.NodeVisitor):
 
 
 def javascript_alias_patterns(source):
-    """Bounded import-name hints, not a JavaScript parser or scope analysis.
+    """Подсказки по импортам без полного разбора JavaScript и областей видимости.
 
-    Source is never evaluated. Only exact known module/member pairs contribute
-    patterns, and every target-controlled identifier is escaped first.
+    Учитываются лишь известные пары модуль-член; имена экранируются.
     """
     ident = r"[A-Za-z_$][\w$]{0,127}"
     module = r"['\"]((?:node:)?child_process|jsonwebtoken|jose)['\"]"
@@ -785,12 +780,11 @@ def javascript_alias_patterns(source):
 
 
 def javascript_boundary_signals(source):
-    """Small bounded token contracts, NOT a JS parser or taint engine.
+    """Ограниченные шаблоны токенов без полного разбора JS и потоков данных.
 
-    Exact imports/constructors, inline objects and direct request properties
-    only. Any observed redeclaration, parameter shadow or reassignment makes
-    that binding unusable throughout this file. Regex literals, destructured
-    imports, dynamic spreads/keys, wrappers and cross-file facts stay manual.
+    Учитываются точные импорты, конструкторы, литералы объектов и поля запроса.
+    Повторное объявление или присваивание отменяет факт во всем файле.
+    Динамические ключи, обертки и связи между файлами требуют ручной проверки.
     """
     issues, tokens = [], []
     token_pattern = re.compile(r"[A-Za-z_$][\w$]*|[0-9]+|=>|\.\.\.|\?\.|===|==|!=|\+=|-=|\+\+|--|[^\s]")
@@ -812,8 +806,8 @@ def javascript_boundary_signals(source):
         start = i
         if (source[i] == "/"
                 and (not tokens or tokens[-1][0] in {"=", "(", "[", ":", ",", "return", "=>", "!", "?", ";"})):
-            # Common regex-literal positions only; division and ambiguous
-            # statement contexts are not resolved as by a full JS grammar.
+            # Учитываем обычные позиции regex-литералов.
+            # Неоднозначность с оператором деления требует ручной проверки.
             end, character_class = i + 1, False
             while end < len(source) and source[end] not in "\r\n":
                 if source[end] == "\\":
@@ -869,7 +863,7 @@ def javascript_boundary_signals(source):
     closing_pairs = {right: left for left, right in pairs.items()}
 
     def fields(begin, end):
-        """Split top-level commas only, under a fixed expression budget."""
+        """Разделяем по запятым верхнего уровня с ограничением размера выражения."""
         if end - begin > 2048:
             issues.append("javascript_expression_limit")
             return []
@@ -896,7 +890,7 @@ def javascript_boundary_signals(source):
                 if re.fullmatch(r"[A-Za-z_$][\w$]*", key):
                     result[key] = (left + 2, right)
                     continue
-            # Unknown spreads/computed keys may override any preceding key.
+            # Неизвестная распаковка или вычисляемый ключ отменяет предыдущие.
             result.clear()
         return result
 
@@ -944,7 +938,7 @@ def javascript_boundary_signals(source):
             pos += 1
         return False  # Calls (including alleged redactors) are not traced.
 
-    # Parameters are a conservative file-wide uncertainty, not scope typing.
+    # Параметры считаются неоднозначными во всем файле, без вывода типов.
     parameter_names = set()
     for pos, value in enumerate(texts):
         if value == "(" and pos in pairs and pairs[pos] + 1 < len(texts) and texts[pairs[pos] + 1] == "{":
@@ -975,7 +969,7 @@ def javascript_boundary_signals(source):
             following = texts[pos + 1] if pos + 1 < len(texts) else ""
             if previous in {"const", "let", "var", "function", "class", "import"} or following in {"=", "+=", "-=", "++", "--"}:
                 return False
-            # Known API member replaced with a local function/value.
+            # Член известного API заменен локальной функцией или значением.
             if following in {".", "?."}:
                 end = pos + 1
                 while end + 1 < len(texts) and texts[end] in {".", "?."}:
@@ -983,7 +977,7 @@ def javascript_boundary_signals(source):
                 if end < len(texts) and texts[end] in {"=", "+=", "-=", "++", "--"}:
                     return False
             if previous in {"{", ","} and following in {"}", ","}:
-                # Destructured declarations/imports cannot establish a fact.
+                # Деструктуризация в объявлениях и импортах не создает факт.
                 left = max(0, pos - 128)
                 if any(texts[k] in {"const", "let", "var", "import"} for k in range(left, pos)):
                     return False
@@ -1009,7 +1003,7 @@ def javascript_boundary_signals(source):
             bindings[texts[local_pos]] = (mod, module_pos + 1)
     if len(bindings) > 128:
         return set(), ["javascript_alias_limit"]
-    # Direct default/namespace driver factories; named imports remain manual.
+    # Фабрики из default/namespace; именованные импорты проверяются вручную.
     for pos, value in enumerate(texts):
         if value not in {"const", "let", "var"} or pos + 7 >= len(texts) or texts[pos + 2] != "=":
             continue
@@ -1070,11 +1064,11 @@ def javascript_boundary_signals(source):
 
 
 def redis_acl_passwordless(line):
-    """Conservative shared token subset of redis.conf and external ACL files.
+    """Общее подмножество токенов redis.conf и файлов ACL.
 
-    This reads a complete physical line, not an effective ACL. Quotes, escapes,
-    selectors, unknown operations and interior non-space whitespace stay manual.
-    Never include tokens (which can contain passwords) in a report.
+    Читаем полную строку, не вычисляя итоговую ACL. Кавычки, экранирование,
+    селекторы и неизвестные операции требуют проверки. Токены могут содержать
+    пароли и не должны попадать в отчет.
     """
     line = line.strip(" \t\r\n")
     if any(char in line for char in "\"'\\()") or any(char.isspace() and char != " " for char in line):
@@ -1097,8 +1091,8 @@ def redis_acl_passwordless(line):
         elif operation == "nopass":
             passwordless = True
         elif operation == "resetpass" or token.startswith(">"):
-            # Even a lone > adds the empty password and clears the nopass flag;
-            # absence of this signal does not establish password strength.
+            # Даже одиночный > добавляет пустой пароль и снимает nopass.
+            # Отсутствие сигнала не подтверждает стойкость пароля.
             passwordless = False
         elif token.startswith("#"):
             if not re.fullmatch(r"#[0-9a-f]{64}", token):
@@ -1109,8 +1103,8 @@ def redis_acl_passwordless(line):
                 return False
         elif (operation in neutral or token.startswith(("<", "~", "&", "+", "-"))
               or operation.startswith(("%r~", "%w~", "%rw~"))):
-            # Access grants/revocations and password removals do not change
-            # either flag. Validity and least privilege are separate reviews.
+            # Разрешения и удаление паролей не меняют эти флаги.
+            # Корректность и минимальность прав проверяются отдельно.
             continue
         else:
             return False
@@ -1118,12 +1112,10 @@ def redis_acl_passwordless(line):
 
 
 def bounded_regex_windows(lines):
-    """Whole LF lines only; never invent an end-of-token by slicing a line.
+    """Окна из целых LF-строк: до 12 строк и 8192 символов, включая CR/LF.
 
-    Each window has at most 12 lines and 8192 characters, including CR/LF.
-    Adaptive overlap retains every supported line after a size boundary. A
-    multi-line match beyond these window bounds remains outside the contract.
-    Only actually skipped oversized lines make the analysis partial.
+    Перекрытие сохраняет строки на границе окон. Более длинные совпадения
+    не поддерживаются. Пропуск слишком длинной строки делает отчет неполным.
     """
     windows = []
     skipped_line = False
@@ -1141,7 +1133,7 @@ def bounded_regex_windows(lines):
         if end == len(lines):
             break
         if len(lines[end]) > 8192:
-            # Do not concatenate supported lines across omitted input.
+            # Не склеиваем строки через пропущенный участок.
             start = end
         else:
             start = max(start + 1, end - 6)
@@ -1149,11 +1141,10 @@ def bounded_regex_windows(lines):
 
 
 def lexical_noncode(source, lang):
-    """Bounded lexical exclusions for opt-in new rules, not a full parser.
+    """Исключение обычных строковых литералов и комментариев для части правил.
 
-    Common quoted literals/comments are recognized. Language-specific regex
-    literals, macros, heredocs and complex interpolation still need review.
-    Offsets and physical line numbers are never changed.
+    Regex-литералы, макросы, heredoc и сложная интерполяция требуют проверки.
+    Смещения и физические номера строк сохраняются.
     """
     excluded = bytearray(len(source))
     issues = []
@@ -1196,7 +1187,7 @@ def lexical_noncode(source, lang):
             quote = source[i]
             if (lang == "rust" and quote == "'"
                     and not re.match(r"'(?:[^'\\\n]|\\(?:[nrt0'\"\\]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F_]{1,8}\}))'", source[i:i + 16])):
-                # Rust lifetimes/labels are not character literals.
+                # Времена жизни и метки Rust не являются символьными литералами.
                 i += 1
                 continue
             i += 1
@@ -1235,10 +1226,10 @@ def scan_text(source, lang, rules):
             hits.update(visitor.hits)
             problems.extend(sorted(visitor.issues))
         except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
-            # Avoid including offending source/secret text from SyntaxError.
+            # SyntaxError может содержать исходный текст и секреты.
             problems.append("python_parse_failed:" + type(exc).__name__)
-    # str.splitlines also treats VT/FF/NEL/Unicode separators as line breaks.
-    # Regex MULTILINE and import hints use LF; preserve that physical layout.
+    # splitlines также разделяет по VT/FF/NEL/Unicode.
+    # Regex MULTILINE и подсказки импортов используют только LF.
     parts = source.split("\n")
     lines = [line + "\n" for line in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
     line_offsets = []
@@ -1252,8 +1243,8 @@ def scan_text(source, lang, rules):
         problems.extend(boundary_issues)
         try:
             newlines = [i for i, char in enumerate(source) if char == "\n"]
-            # Import declarations and call sites may be far apart. Known call
-            # prefixes are searched under the file-size and alias-count limits.
+            # Импорт и вызов могут быть далеко друг от друга.
+            # Поиск ограничен размером файла и числом псевдонимов.
             for rid, pattern, declaration_end in javascript_alias_patterns(source):
                 for match in pattern.finditer(source, declaration_end):
                     hits.add((rid, bisect_right(newlines, match.start()) + 1))
@@ -1273,15 +1264,14 @@ def scan_text(source, lang, rules):
             for match in pattern.finditer(window):
                 absolute = line_offsets[start] + match.start()
                 if rule.get("code_only") and noncode[absolute]:
-                    # Only flag uncertain lexical exclusions when they hide a
-                    # candidate for these opt-in rules. This is not a general
-                    # syntax validator for all legacy textual rules.
+                    # Отмечаем неоднозначность, лишь если она скрывает совпадение
+                    # этих правил. Это не общая проверка синтаксиса языка.
                     if lexical_issues and "lexical_unterminated" not in problems:
                         problems.append("lexical_unterminated")
                     continue
                 if rule["id"] == "PHP-SHELL" and re.search(r"(?:->|::)\s*$", source[max(0, absolute - 128):absolute]):
-                    # PDO::exec is SQL, not PHP's exec(). Receiver semantics
-                    # for arbitrary user methods require manual review.
+                    # PDO::exec выполняет SQL, в отличие от PHP exec().
+                    # Назначение произвольных методов проверяется вручную.
                     continue
                 line = start + window.count("\n", 0, match.start()) + 1
                 if rule["id"] == "CFG-REDIS-ACL":
@@ -1302,19 +1292,17 @@ def secret_file(name):
 
 
 def canonical_scan_root(path):
-    """Resolve ancestor links while retaining a no-symlink file boundary.
+    """Разрешаем ссылки в родительских каталогах, но не в конечном пути.
 
-    macOS exposes ordinary locations such as /tmp through a symlinked ancestor.
-    Resolve only ancestors so a leaf swap cannot be followed by canonicalization.
-    The final entry supplied as the root must never itself be a symlink.
+    Это поддерживает системные ссылки macOS вроде /tmp и сохраняет запрет
+    на символическую ссылку вместо выбранного файла или каталога.
     """
     requested = Path(os.path.abspath(path))
     metadata = requested.lstat()
     if stat.S_ISLNK(metadata.st_mode):
         raise ValueError("root leaf is a symlink")
-    # Path.resolve() calls a privileged handle API on Windows and can fail for
-    # otherwise readable files in managed environments.  Windows does not need
-    # the macOS ancestor canonicalization this branch exists to support.
+    # На Windows resolve может требовать дополнительных прав на дескриптор.
+    # Канонизация системных ссылок macOS на Windows не нужна.
     canonical = requested if os.name == "nt" else requested.parent.resolve(strict=True) / requested.name
     canonical_metadata = canonical.lstat()
     if stat.S_ISLNK(canonical_metadata.st_mode):
@@ -1332,8 +1320,8 @@ def file_identity(metadata):
 
 
 def read_regular(path, limit):
-    # Prevent leaf symlink swaps and FIFO hangs. Parents should be quiescent:
-    # this is a local snapshot reader, not an OS sandbox for racing attackers.
+    # Защищаемся от подмены конечного пути ссылкой и зависания на FIFO.
+    # Родительские каталоги должны быть неизменны во время чтения.
     flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) |
              getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     fd = os.open(path, flags)
@@ -1367,7 +1355,7 @@ def scan(root, rules, *, exclude=(), max_bytes=1048576, max_files=20000, max_fin
         raise ValueError("root must be an existing regular file or directory")
     exclude = tuple(sorted(set(exclude)))
     by_id = {r["id"]: r for r in rules}
-    report = {"tool": "DurkaHelper defense_scan", "version": VERSION, "offline": True,
+    report = {"tool": "wahrwelt defense_scan", "version": VERSION, "offline": True,
               "created_at": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
               "scope": scan_scope(root, rules, exclude, max_bytes, max_files, max_findings, context),
               "findings": [], "issues": [], "skipped": {}, "files_scanned": 0,
@@ -1386,7 +1374,7 @@ def scan(root, rules, *, exclude=(), max_bytes=1048576, max_files=20000, max_fin
         while stack:
             directory = stack.pop()
             try:
-                # Bound enumeration even when a directory has millions of entries.
+                # Ограничиваем перебор даже для каталогов с миллионами записей.
                 entries = []
                 with os.scandir(directory) as items:
                     for entry in items:
@@ -1461,19 +1449,19 @@ def scan(root, rules, *, exclude=(), max_bytes=1048576, max_files=20000, max_fin
 
 
 def terminal(value):
-    # Escape filenames/control characters instead of interpreting terminal escapes.
+    # Экранируем управляющие символы и последовательности терминала в именах.
     return json.dumps(str(value), ensure_ascii=True)[1:-1] if not str(value).isprintable() else str(value)
 
 
 def positive(value):
     number = int(value)
     if number < 1:
-        raise argparse.ArgumentTypeError("must be positive")
+        raise argparse.ArgumentTypeError("значение должно быть положительным")
     return number
 
 
 def configure_text_output():
-    """Keep CLI diagnostics printable on legacy Windows code pages."""
+    """Сохраняем читаемый вывод в старых кодировках Windows."""
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
@@ -1486,13 +1474,13 @@ def configure_text_output():
 def main(argv=None):
     configure_text_output()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("root", nargs="?", help="local source directory or file")
-    parser.add_argument("--json", action="store_true", help="JSON report to stdout, including patch templates")
-    parser.add_argument("--patches", action="store_true", help="show before/after templates in text output")
-    parser.add_argument("--list-rules", action="store_true")
-    parser.add_argument("--explain", metavar="RULE_ID")
-    parser.add_argument("--exclude", action="append", default=[], metavar="GLOB", help="relative path glob; repeatable")
-    parser.add_argument("--context", metavar="CONTEXT.json", help="non-secret infrastructure context; never disables rules")
+    parser.add_argument("root", nargs="?", help="локальный каталог или файл с исходниками")
+    parser.add_argument("--json", action="store_true", help="вывести JSON-отчет")
+    parser.add_argument("--patches", action="store_true", help="показать примеры до и после")
+    parser.add_argument("--list-rules", action="store_true", help="показать список правил")
+    parser.add_argument("--explain", metavar="RULE_ID", help="показать карточку правила")
+    parser.add_argument("--exclude", action="append", default=[], metavar="GLOB", help="маска относительного пути; можно повторять")
+    parser.add_argument("--context", metavar="CONTEXT.json", help="не секретный контекст; не отключает правила")
     parser.add_argument("--max-bytes", type=positive, default=1048576)
     parser.add_argument("--max-files", type=positive, default=20000)
     parser.add_argument("--max-findings", type=positive, default=10000)
@@ -1507,39 +1495,39 @@ def main(argv=None):
         if args.explain:
             rule = next((r for r in rules if r["id"] == args.explain), None)
             if rule is None:
-                parser.error("unknown rule ID")
+                parser.error("неизвестный идентификатор правила")
             print(json.dumps({k: v for k, v in rule.items()
                               if k not in {"compiled", "compiled_languages", "pattern", "language_patterns"}},
                              ensure_ascii=False, indent=2))
             return 0
         if not args.root:
-            parser.error("provide a root, --list-rules, or --explain")
+            parser.error("укажите путь, --list-rules или --explain")
         report = scan(args.root, rules, exclude=args.exclude, max_bytes=args.max_bytes,
                       max_files=args.max_files, max_findings=args.max_findings,
                       context=load_context(args.context) if args.context else None)
     except (OSError, ValueError, KeyError, re.error, RecursionError, MemoryError) as exc:
         error = {"error": "invalid input or rule pack", "type": type(exc).__name__, "exit_code": 2}
-        print(json.dumps(error) if args.json else "ERROR: invalid input or rule pack (" + type(exc).__name__ + ")")
+        print(json.dumps(error) if args.json else "ОШИБКА: некорректный ввод или набор правил (" + type(exc).__name__ + ")")
         return 2
     if args.json:
         print(json.dumps(report, ensure_ascii=True, indent=2))
     else:
         for finding in report["findings"]:
             print(f"{terminal(finding['path'])}:{finding['line']} [{finding['rule']}] {finding['title']}")
-            print("  Why review:", finding["reason"])
-            print("  Remediation:", finding["fix"])
-            print("  Verify:", finding["check"])
-            print("  Reference:", finding["doc"])
-            print("  Review priority:", finding["review_priority"], "|", finding["signal_kind"])
+            print("  Причина проверки:", finding["reason"])
+            print("  Исправление:", finding["fix"])
+            print("  Проверка:", finding["check"])
+            print("  Карточка:", finding["doc"])
+            print("  Приоритет:", finding["review_priority"], "|", finding["signal_kind"])
             for note in finding["context_notes"]:
-                print("  Context:", note)
+                print("  Контекст:", note)
             if args.patches:
-                print("  Before example:\n" + finding["patch_example"]["before"])
-                print("  After example:\n" + finding["patch_example"]["after"])
+                print("  Пример до:\n" + finding["patch_example"]["before"])
+                print("  Пример после:\n" + finding["patch_example"]["after"])
         for issue in report["issues"]:
-            print("ISSUE:", terminal(issue["path"]), issue["reason"])
-        print(f"Scanned: {report['files_scanned']}; findings: {len(report['findings'])}; partial: {report['partial']}; skipped: {report['skipped']}")
-        print("Signals require review; zero findings is not a security verdict. Offline templates: --explain RULE_ID / --patches.")
+            print("ПРОБЛЕМА:", terminal(issue["path"]), issue["reason"])
+        print(f"Проверено файлов: {report['files_scanned']}; находок: {len(report['findings'])}; неполный отчет: {report['partial']}; пропущено: {report['skipped']}")
+        print("Находки требуют ручной проверки; отсутствие находок не подтверждает безопасность. Примеры: --explain RULE_ID / --patches.")
     return report["exit_code"]
 
 

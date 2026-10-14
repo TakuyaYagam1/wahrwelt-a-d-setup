@@ -1,4 +1,4 @@
-"""Archive API regressions; fixture source is parsed, never executed."""
+"""Архивные API проверяются разбором исходников без их исполнения."""
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -75,7 +75,7 @@ class ArchiveTests(unittest.TestCase):
         ]:
             with self.subTest(source=source):
                 self.assertFalse(self.signal(source))
-        # Existing tail heuristic remains deliberately broader than TarFile.
+        # Эвристика по окончанию имени намеренно шире методов TarFile.
         self.assertTrue(self.signal("import zipfile\nzipfile.ZipFile(path).extractall(destination)"))
 
     def test_with_does_not_carry_scalar_filter_facts(self):
@@ -84,8 +84,7 @@ class ArchiveTests(unittest.TestCase):
         self.assertTrue(self.signal(source))
 
     def test_context_target_shadowing_and_filter_rebinding(self):
-        # Counterexamples added after the implementation: the later context
-        # target replaces the first one, and a rebound filter is not trusted.
+        # Поздний контекст заменяет первый, а переназначенный фильтр ненадежен.
         self.assertFalse(self.signal(
             "import tarfile\nwith tarfile.open(path) as archive, other() as archive:\n"
             "    archive.extract(member)"))

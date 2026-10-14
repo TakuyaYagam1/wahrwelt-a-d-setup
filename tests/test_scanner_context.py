@@ -1,7 +1,7 @@
-"""Infrastructure context, English metadata and independent expansion regressions.
+"""Контекст инфраструктуры, метаданные и независимые примеры правил.
 
-All fixture source is inert text. No target source, dependency or command is
-imported/executed; sockets/process launch are forbidden during detector tests.
+Исходники не исполняются. Сетевые соединения и запуск процессов запрещены
+во время проверки детекторов.
 """
 import contextlib
 import hashlib
@@ -87,10 +87,10 @@ class ScannerContextTests(unittest.TestCase):
     def test_legacy_v1_is_readable_but_not_comparable_to_v2(self):
         current = scanner.scan_scope(Path("example"), self.rules, [], 1024, 50, 50)
         legacy = {k: v for k, v in current.items() if k not in {"context_sha256", "semantic_revision", "sha256"}}
-        legacy["schema"] = "durkahelper.scanner-scope.v1"
+        legacy["schema"] = "wahrwelt.scanner-scope.v1"
         legacy["sha256"] = hashlib.sha256(scanner._canonical_json(legacy)).hexdigest()
         self.assertEqual(diff.validate_scope(legacy), legacy)
-        common = {"tool": "DurkaHelper defense_scan", "version": scanner.VERSION,
+        common = {"tool": "wahrwelt defense_scan", "version": scanner.VERSION,
                   "offline": True, "created_at": "2026-10-09T00:00:00Z", "findings": [],
                   "issues": [], "partial": False, "exit_code": 0}
         result = diff.compare_reports(diff.validate_report({**common, "scope": legacy}),
@@ -175,12 +175,12 @@ class ScannerContextTests(unittest.TestCase):
         self.assertTrue(ledger["checks_executed"])
         self.assertEqual(ledger["unmet_release_pairs"], [])
 
-    def test_rule_metadata_is_english_and_bounded_review_not_verdict(self):
+    def test_rule_metadata_is_russian_and_bounded_review_not_verdict(self):
         for rule in self.rules:
             with self.subTest(rule=rule["id"]):
-                for key in ("title", "reason", "fix", "check", "limitations"):
+                for key in ("title", "reason", "fix", "check", "detection", "limitations"):
                     self.assertIsInstance(rule[key], str)
-                    self.assertNotRegex(rule[key], r"[\u0400-\u04ff]")
+                    self.assertRegex(rule[key], r"[\u0400-\u04ff]")
                 self.assertIn(rule["review_priority"], {"normal", "high"})
                 self.assertIn(rule["signal_kind"], {"syntactic-review", "configuration-review"})
                 self.assertTrue(all(re.fullmatch(r"CWE-[1-9][0-9]*", value) for value in rule["cwe"]))

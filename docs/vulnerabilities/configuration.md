@@ -1,566 +1,670 @@
-# Configuration and trust boundaries: find, fix and verify
+<a id="configuration-and-trust-boundaries-find-fix-and-verify"></a>
 
-English | [Русский](configuration-RU.md)
+# Общие мисконфиги и границы доступа: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-64 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+64 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [CFG-SECRET — Literal secret or default key](#cfg-secret)
-- [CFG-DEBUG — Debug enabled in configuration](#cfg-debug)
-- [CFG-CORS — Broad CORS policy](#cfg-cors)
-- [CFG-DOCKER-PRIV — Privileged container](#cfg-docker-priv)
-- [CFG-DOCKER-SOCKET — Docker socket exposed to a service](#cfg-docker-socket)
-- [CFG-DOCKER-ROOT — Explicit Docker USER root](#cfg-docker-root)
-- [CFG-WORLD-WRITE — Broad write permissions](#cfg-world-write)
-- [CFG-NGINX-LIST — nginx directory listing](#cfg-nginx-list)
-- [CFG-NGINX-ALIAS — Review nginx alias boundaries](#cfg-nginx-alias)
-- [CFG-POSTGRES-TRUST — PostgreSQL trust](#cfg-postgres-trust)
-- [CFG-REDIS-PROTECTION — Redis protected-mode disabled](#cfg-redis-protection)
-- [TPL-RAW — Unescaped template output](#tpl-raw)
-- [SRC-MIXED-IDENTIFIER — Mixed Latin/Cyrillic/Greek identifier](#src-mixed-identifier)
-- [SRC-BIDI-CONTROL — Bidirectional text control in source](#src-bidi-control)
-- [CFG-REDIS-ACL — Redis ACL user without a password](#cfg-redis-acl)
-- [CFG-MONGO-NOAUTH — MongoDB authorization disabled](#cfg-mongo-noauth)
-- [CFG-CAPABILITIES — Broad container capabilities](#cfg-capabilities)
-- [CFG-BUILD-SECRET — Secret in Dockerfile ARG/ENV](#cfg-build-secret)
-- [CFG-NGINX-AUTH-OFF — Nested nginx location disables auth_request](#cfg-nginx-auth-off)
-- [CFG-FILE-MODE — Configuration, data-directory and ACL permissions](#cfg-file-mode)
-- [CFG-BIND-MOUNT — Writable mounts expose hosts or neighboring data](#cfg-bind-mount)
-- [CFG-K8S-RBAC — Workload bound to cluster-admin](#cfg-k8s-rbac)
-- [CFG-NGINX-LOCATION — URI normalization and location selection](#cfg-nginx-location)
-- [CFG-STATIC-SECRETS — Static roots expose .git, backups, databases and logs](#cfg-static-secrets)
-- [CFG-COOKIE-FLAGS — Explicitly weakened session cookie flags](#cfg-cookie-flags)
-- [CFG-TRUSTED-HEADERS — Backends trust client-supplied user, role or IP](#cfg-trusted-headers)
-- [CFG-CACHE-AUTH — Shared HTTP caches retain personalized responses](#cfg-cache-auth)
-- [CFG-DEBUG-ENDPOINT — Diagnostics become public APIs](#cfg-debug-endpoint)
-- [CFG-ERROR-SECRET — Logs expose credentials or private request bodies](#cfg-error-secret)
-- [CFG-RESOURCE-LIMITS — Body, decompression and multipart limits](#cfg-resource-limits)
-- [CFG-UPLOAD-EXEC — Uploads become executable or active content](#cfg-upload-exec)
-- [CFG-HTTP-PARSER — Proxy and backend disagree on framing](#cfg-http-parser)
-- [CFG-CORS-CREDENTIALS — CORS reflects Origin with credentials](#cfg-cors-credentials)
-- [CFG-RESET-TOKEN — Recovery or share tokens lack purpose or one-time use](#cfg-reset-token)
-- [CFG-OBJECT-POLICY — Alternative endpoints expose an object directly](#cfg-object-policy)
-- [CFG-DEPLOYED-CONFIG — Reviewing an example instead of effective configuration](#cfg-deployed-config)
-- [CFG-MEDIA-CONVERTER — Media documents load additional resources](#cfg-media-converter)
-- [CFG-FORMAT-TRANSITION — Injection through intermediate YAML](#cfg-format-transition)
-- [CFG-PRINCIPAL-CONTEXT — Clients modify authorization context](#cfg-principal-context)
-- [CFG-AUTH-TOCTOU — Authorization races and identifier reuse](#cfg-auth-toctou)
-- [CFG-CUSTOM-CRYPTO — Algebraic leakage in custom cryptography](#cfg-custom-crypto)
-- [CFG-SHARED-BACKEND-KEY — One credential spans all child environments](#cfg-shared-backend-key)
-- [CFG-WINDOWS-NAMES — Filenames have different Windows meanings](#cfg-windows-names)
-- [CFG-PROXY-REDIRECT — Reverse proxies follow redirects into trusted services](#cfg-proxy-redirect)
-- [CFG-PROTOCOL-KEY — Degenerate values in cryptographic protocols](#cfg-protocol-key)
-- [CFG-AGGREGATE-KEY — Incorrect public-key aggregation](#cfg-aggregate-key)
-- [CFG-K8S-HOST — Container shares host namespaces](#cfg-k8s-host)
-- [CFG-UNCONFINED — seccomp/AppArmor profile disabled](#cfg-unconfined)
-- [CFG-PRIV-ESCALATION — Process privilege escalation allowed](#cfg-priv-escalation)
-- [CFG-ACTUATOR — Spring Actuator exposes every endpoint](#cfg-actuator)
-- [CFG-H2-CONSOLE — H2 web console enabled](#cfg-h2-console)
-- [CFG-TLS-UPSTREAM — Proxy does not verify upstream TLS](#cfg-tls-upstream)
-- [CFG-SSH-EMPTY-PASSWORD — SSHD permits empty passwords](#cfg-ssh-empty-password)
-- [CFG-SUDO-ALL — Unrestricted passwordless sudo](#cfg-sudo-all)
-- [CFG-JWT-KEY-SELECTION — Untrusted kid/jku selects verification keys](#cfg-jwt-key-selection)
-- [CFG-SIGNED-REQUEST — Signatures are not bound to operations or preventable replays](#cfg-signed-request)
-- [CFG-RATE-LIMIT-IDENTITY — Senders choose their rate-limit identity](#cfg-rate-limit-identity)
-- [CFG-TOKEN-REVOCATION — Password or role changes fail to revoke access](#cfg-token-revocation)
-- [CFG-FAIL-OPEN — Verification errors become permission](#cfg-fail-open)
-- [CFG-LDAP-FILTER — LDAP filters or DNs built as strings](#cfg-ldap-filter)
-- [CFG-CI-TRUST — Untrusted data and code cross CI trust boundaries](#cfg-ci-trust)
-- [CFG-DOCKER-TCP — Docker daemon listens on every TCP interface](#cfg-docker-tcp)
-- [CFG-FLOATING-IMAGE — Explicit latest image tag](#cfg-floating-image)
-- [TPL-AUTOESCAPE-OFF — Template block disables autoescaping](#tpl-autoescape-off)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [CFG-SECRET - Литерал секрета/default key](#cfg-secret)
+- [CFG-DEBUG - Debug в конфигурации](#cfg-debug)
+- [CFG-CORS - Широкая CORS-политика](#cfg-cors)
+- [CFG-DOCKER-PRIV - Привилегированный контейнер](#cfg-docker-priv)
+- [CFG-DOCKER-SOCKET - Docker socket доступен сервису](#cfg-docker-socket)
+- [CFG-DOCKER-ROOT - Явный USER root](#cfg-docker-root)
+- [CFG-WORLD-WRITE - Широкие права записи](#cfg-world-write)
+- [CFG-NGINX-LIST - Листинг каталога nginx](#cfg-nginx-list)
+- [CFG-NGINX-ALIAS - Проверить границы nginx alias](#cfg-nginx-alias)
+- [CFG-POSTGRES-TRUST - Доверенная аутентификация PostgreSQL](#cfg-postgres-trust)
+- [CFG-REDIS-PROTECTION - Отключён protected-mode Redis](#cfg-redis-protection)
+- [TPL-RAW - Неэкранированный вывод шаблона](#tpl-raw)
+- [SRC-MIXED-IDENTIFIER - Смешение Latin/Cyrillic/Greek в одном слове](#src-mixed-identifier)
+- [SRC-BIDI-CONTROL - Управление направлением текста в исходнике](#src-bidi-control)
+- [CFG-REDIS-ACL - Redis ACL-пользователь без пароля](#cfg-redis-acl)
+- [CFG-MONGO-NOAUTH - MongoDB authorization явно отключена](#cfg-mongo-noauth)
+- [CFG-CAPABILITIES - Широкие capabilities контейнера](#cfg-capabilities)
+- [CFG-BUILD-SECRET - Секрет в ARG/ENV Dockerfile](#cfg-build-secret)
+- [CFG-NGINX-AUTH-OFF - Вложенный location отключает auth_request](#cfg-nginx-auth-off)
+- [CFG-FILE-MODE - Права конфигов, каталога данных и ACL](#cfg-file-mode)
+- [CFG-BIND-MOUNT - Writable mount раскрывает хост или соседние данные](#cfg-bind-mount)
+- [CFG-K8S-RBAC - ServiceAccount и wildcard RBAC](#cfg-k8s-rbac)
+- [CFG-NGINX-LOCATION - Нормализация URI и разные location](#cfg-nginx-location)
+- [CFG-STATIC-SECRETS - Static root публикует .git, backup, БД и логи](#cfg-static-secrets)
+- [CFG-COOKIE-FLAGS - Явно ослабленные флаги session cookies](#cfg-cookie-flags)
+- [CFG-TRUSTED-HEADERS - Backend доверяет клиентскому user/role/IP](#cfg-trusted-headers)
+- [CFG-CACHE-AUTH - Общий HTTP cache сохраняет персональный ответ](#cfg-cache-auth)
+- [CFG-DEBUG-ENDPOINT - Диагностика доступна как публичный API](#cfg-debug-endpoint)
+- [CFG-ERROR-SECRET - Логи содержат credentials/тела приватных запросов](#cfg-error-secret)
+- [CFG-RESOURCE-LIMITS - Лимиты тела, decompression и multipart](#cfg-resource-limits)
+- [CFG-UPLOAD-EXEC - Upload становится исполняемым или active content](#cfg-upload-exec)
+- [CFG-HTTP-PARSER - Proxy и backend расходятся в framing](#cfg-http-parser)
+- [CFG-CORS-CREDENTIALS - CORS отражает Origin вместе с credentials](#cfg-cors-credentials)
+- [CFG-RESET-TOKEN - Recovery/share token без purpose и одноразовости](#cfg-reset-token)
+- [CFG-OBJECT-POLICY - Прямой доступ к объекту через альтернативный endpoint](#cfg-object-policy)
+- [CFG-DEPLOYED-CONFIG - Проверен пример, запущен другой конфиг](#cfg-deployed-config)
+- [CFG-MEDIA-CONVERTER - Загрузка ресурсов из медиадокумента](#cfg-media-converter)
+- [CFG-FORMAT-TRANSITION - Инъекция через промежуточный YAML](#cfg-format-transition)
+- [CFG-PRINCIPAL-CONTEXT - Клиент изменяет контекст авторизации](#cfg-principal-context)
+- [CFG-AUTH-TOCTOU - TOCTOU и повторное использование ID](#cfg-auth-toctou)
+- [CFG-CUSTOM-CRYPTO - Алгебраическая утечка самодельной криптографии](#cfg-custom-crypto)
+- [CFG-SHARED-BACKEND-KEY - Один служебный credential для всех дочерних окружений](#cfg-shared-backend-key)
+- [CFG-WINDOWS-NAMES - Имя файла имеет иной смысл в Windows](#cfg-windows-names)
+- [CFG-PROXY-REDIRECT - Reverse proxy следует redirect внутрь доверенного сервиса](#cfg-proxy-redirect)
+- [CFG-PROTOCOL-KEY - Вырожденное значение в криптопротоколе](#cfg-protocol-key)
+- [CFG-AGGREGATE-KEY - Некорректная агрегация публичных ключей](#cfg-aggregate-key)
+- [CFG-K8S-HOST - Контейнер разделяет host namespace](#cfg-k8s-host)
+- [CFG-UNCONFINED - Отключён профиль seccomp/AppArmor](#cfg-unconfined)
+- [CFG-PRIV-ESCALATION - Разрешено повышение привилегий процесса](#cfg-priv-escalation)
+- [CFG-ACTUATOR - Spring Actuator публикует все endpoints](#cfg-actuator)
+- [CFG-H2-CONSOLE - Веб-консоль H2 включена](#cfg-h2-console)
+- [CFG-TLS-UPSTREAM - Proxy не проверяет TLS upstream](#cfg-tls-upstream)
+- [CFG-SSH-EMPTY-PASSWORD - SSHD допускает пустой пароль](#cfg-ssh-empty-password)
+- [CFG-SUDO-ALL - Неограниченный sudo без пароля](#cfg-sudo-all)
+- [CFG-JWT-KEY-SELECTION - Недоверенный kid/jku выбирает ключ проверки](#cfg-jwt-key-selection)
+- [CFG-SIGNED-REQUEST - Подпись не связана с действием или допускает повтор](#cfg-signed-request)
+- [CFG-RATE-LIMIT-IDENTITY - Ключ rate limit выбирает отправитель](#cfg-rate-limit-identity)
+- [CFG-TOKEN-REVOCATION - Смена пароля или роли не отзывает полномочия](#cfg-token-revocation)
+- [CFG-FAIL-OPEN - Ошибка проверки превращается в разрешение](#cfg-fail-open)
+- [CFG-LDAP-FILTER - Строковая сборка LDAP filter или DN](#cfg-ldap-filter)
+- [CFG-CI-TRUST - Недоверенные данные и код пересекают границу CI](#cfg-ci-trust)
+- [CFG-DOCKER-TCP - Docker daemon слушает на всех TCP-интерфейсах](#cfg-docker-tcp)
+- [CFG-FLOATING-IMAGE - Явный тег образа latest](#cfg-floating-image)
+- [TPL-AUTOESCAPE-OFF - Блок шаблона отключает автоматическое экранирование](#tpl-autoescape-off)
 
 <a id="cfg-secret"></a>
 
-## CFG-SECRET. Literal secret or default key
+<a id="cfg-secret-literal-secret-or-default-key"></a>
 
-**Search:** scanner rule CFG-SECRET. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-SECRET` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-SECRET. Литерал секрета/default key
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-SECRET. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-SECRET. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 JWT_SECRET = "development"
 ~~~
 
-**Fix:** Check active fallbacks; read secrets from private configuration. Rotate with migration/rollback for sessions and data.
+**Исправление:** Проверить, используется ли fallback; секрет из защищённого конфига. Ротация только с планом для текущих сессий/данных.
 
 ~~~text
 JWT_SECRET = load_existing_secret()
 ~~~
 
-**Verification:** No shared fallback remains; legitimate sessions/data stay recoverable.
+**Проверка:** Нет общего fallback; законные данные/сессии сохранены.
 
-**A/D variant:** Shared signing secret. **Reference:** lost_museum, RuCTF author write-up: a fixed shared JWT key. **Search:** Key literals, defaults and identical keys across roles/teams. Scanner: CFG-SECRET, with partial name coverage.
+**Вариант A/D:** Общий секрет подписи. **Основание:** lost_museum, авторский разбор RuCTF: фиксированный общий JWT key.
+**Искать:** литералы ключей, defaults, одинаковые ключи разных ролей/команд.
+Сканер: CFG-SECRET, частичное покрытие имён.
 
-**Patch:** An independently configured secret and explicit rotation policy. Do not simply change keys and invalidate every legitimate session. Temporarily accepting an old compromised key leaves its compromise active: use safe server-side migration/reverification, not indefinite fallback. **Test:** Old/new sessions according to migration policy, wrong signatures, expiry and purpose; never log keys.
+**Патч:** собственный секрет через конфиг и явная политика ротации.
+Нельзя просто сменить ключ и потерять все легитимные сессии. При временном
+чтении старого ключа учитывать, что его компрометация остаётся действующей:
+потребуется безопасная серверная миграция/перепроверка, а не бесконечный fallback.
+**Тест:** новая и старая сессия по плану перехода, неверная подпись, срок,
+назначение; не выводить ключ в логи.
 
-[source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/lost_museum/README.md).
+[исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/lost_museum/README.md).
 
-**A/D variant:** Default keys and mixed token purposes. **Reference:** explorers, CTF Cup config/auth/API review. Configuration contained a default jwt_key literal that environment could override. One JWT helper served different claim schemas. This calls for boundary review; it is not a reproduced authorization bypass.
+**Вариант A/D:** Default key и смешение назначений токенов. **Основание:** explorers CTF Cup, наблюдения по config/auth/API.
+В настройках есть буквальный jwt_key по умолчанию; env мог его заменить.
+Один JWT-помощник используется для разных схем claims. Это повод проверить
+границы, не воспроизведённый обход авторизации.
 
-**Patch:** Require key configuration; validate typ/purpose/audience and required fields at every receiver. A missing user_id is not a valid principal. **Test:** Share tokens cannot become authentication tokens or vice versa; invalid/empty subjects fail and legitimate sharing works. Scanner: CFG-SECRET for literals; purpose requires manual analysis.
+**Патч:** обязательный конфиг ключа; проверять typ/purpose/audience и обязательные
+поля на каждом принимающем маршруте. Нельзя трактовать отсутствие user_id как
+валидного субъекта. **Тест:** токен общего доступа не становится auth-токеном
+и наоборот; неверный/пустой subject отклоняется; штатный share работает.
+Сканер: CFG-SECRET для литерала, назначение токена - ручной анализ.
 
-[source/write-up 1](https://github.com/C4T-BuT-S4D/ctfcup-2023-ad/blob/53d6b9b7369448ac6c5d7d8e9458f66b25271e8a/services/explorers/src/app/config.py); [source/write-up 2](https://github.com/C4T-BuT-S4D/ctfcup-2023-ad/blob/53d6b9b7369448ac6c5d7d8e9458f66b25271e8a/services/explorers/src/app/auth.py).
+[исходник/разбор 1](https://github.com/C4T-BuT-S4D/ctfcup-2023-ad/blob/53d6b9b7369448ac6c5d7d8e9458f66b25271e8a/services/explorers/src/app/config.py); [исходник/разбор 2](https://github.com/C4T-BuT-S4D/ctfcup-2023-ad/blob/53d6b9b7369448ac6c5d7d8e9458f66b25271e8a/services/explorers/src/app/auth.py).
 
 <a id="cfg-debug"></a>
 
-## CFG-DEBUG. Debug enabled in configuration
+<a id="cfg-debug-debug-enabled-in-configuration"></a>
 
-**Search:** scanner rule CFG-DEBUG. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-DEBUG` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-DEBUG. Debug в конфигурации
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-DEBUG. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-DEBUG. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 DEBUG=true
 ~~~
 
-**Fix:** Disable runtime debug and keep private diagnostics without secrets.
+**Исправление:** Отключить debug в игровом профиле; серверные логи без секретов.
 
 ~~~text
 DEBUG=false
 ~~~
 
-**Verification:** Errors expose neither console nor stack trace.
+**Проверка:** Ошибки не раскрывают консоль/stack trace.
 
 <a id="cfg-cors"></a>
 
-## CFG-CORS. Broad CORS policy
+<a id="cfg-cors-broad-cors-policy"></a>
 
-**Search:** scanner rule CFG-CORS. Use `--explain CFG-CORS` for the exact detector contract. Legacy wildcard header/config heuristic (untyped). JS bounded tokens also detect default imported/required cors with inline origin:true and credentials:true, literal quoted keys and last-write-wins fields. Observed shadows/reassignments suppress the new hint. Computed keys, variables, wrappers, actual response policy and other languages remain manual.
+## CFG-CORS. Широкая CORS-политика
 
-**Vulnerable example:**
+**Поиск:** правило сканера CFG-CORS. Подробности: `--explain CFG-CORS`. Старый поиск wildcard в headers/config без определения типа. JS-токены дополнительно распознают default import/require cors с inline origin:true и credentials:true, строковыми ключами и учётом последних присваиваний. Наблюдаемые shadows/reassignments отключают новую подсказку. Вычисляемые ключи, переменные, wrappers, фактическая политика ответа и другие языки требуют ручной проверки.
+
+**Уязвимый вариант:**
 
 ~~~text
 Access-Control-Allow-Origin: *
 ~~~
 
-**Fix:** Allowlist actual origins and use Vary: Origin where needed; authentication and CSRF remain separate. A wildcard alone is not an auth bypass.
+**Исправление:** Явные разрешённые origins и Vary: Origin, если нужен cross-origin; auth/CSRF отдельно. Звёздочка сама по себе не обходит auth.
 
 ~~~text
 Access-Control-Allow-Origin: https://ui.example.invalid
 ~~~
 
-**Verification:** Authorized browsers work; unrelated origins cannot read private responses.
+**Проверка:** Разрешённый браузерный клиент работает; чужой origin не читает приватный ответ.
 
 <a id="cfg-docker-priv"></a>
 
-## CFG-DOCKER-PRIV. Privileged container
+<a id="cfg-docker-priv-privileged-container"></a>
 
-**Search:** scanner rule CFG-DOCKER-PRIV. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-DOCKER-PRIV` for details. Regex: privileged:true and cap_add with SYS_ADMIN/ALL, including quoted JSON keys. CFG-CAPABILITIES covers block capabilities; inspect effective Docker/Kubernetes config.
+## CFG-DOCKER-PRIV. Привилегированный контейнер
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-DOCKER-PRIV. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-DOCKER-PRIV. Regex: privileged:true и cap_add с SYS_ADMIN/ALL, включая quoted JSON keys. Block capabilities покрывает CFG-CAPABILITIES; эффективный Docker/Kubernetes config проверить вручную.
+
+**Уязвимый вариант:**
 
 ~~~text
 privileged: true
 ~~~
 
-**Fix:** Identify minimum capabilities and change only authorized owned services, not organizer infrastructure.
+**Исправление:** Определить необходимые capabilities; ограничивать только разрешённый собственный сервис, не инфраструктуру организаторов.
 
 ~~~text
 privileged: false
 ~~~
 
-**Verification:** Service/checker works without unnecessary privileges.
+**Проверка:** Сервис/checker работает без лишних полномочий.
 
 <a id="cfg-docker-socket"></a>
 
-## CFG-DOCKER-SOCKET. Docker socket exposed to a service
+<a id="cfg-docker-socket-docker-socket-exposed-to-a-service"></a>
 
-**Search:** scanner rule CFG-DOCKER-SOCKET. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-DOCKER-SOCKET` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-DOCKER-SOCKET. Docker socket доступен сервису
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-DOCKER-SOCKET. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-DOCKER-SOCKET. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 - /var/run/docker.sock:/var/run/docker.sock
 ~~~
 
-**Fix:** Remove unnecessary mounts after checking dependencies/rules; never alter unrelated containers automatically.
+**Исправление:** Убрать ненужный mount после проверки зависимости и правил; не менять служебные контейнеры автоматически.
 
 ~~~text
 - app-data:/srv/data
 ~~~
 
-**Verification:** Required service and approved management operations work.
+**Проверка:** Штатная функция и разрешённые инструменты работают.
 
 <a id="cfg-docker-root"></a>
 
-## CFG-DOCKER-ROOT. Explicit Docker USER root
+<a id="cfg-docker-root-explicit-docker-user-root"></a>
 
-**Search:** scanner rule CFG-DOCKER-ROOT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-DOCKER-ROOT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-DOCKER-ROOT. Явный USER root
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-DOCKER-ROOT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-DOCKER-ROOT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 USER root
 ~~~
 
-**Fix:** Prepare an unprivileged user and directory permissions; missing USER is not detected by this rule.
+**Исправление:** Подготовленный непривилегированный пользователь и права на необходимые каталоги; отсутствие USER правило не проверяет.
 
 ~~~text
 USER app
 ~~~
 
-**Verification:** Volumes, ports, writes and restart work.
+**Проверка:** Тома, порты, запись данных и restart работают.
 
 <a id="cfg-world-write"></a>
 
-## CFG-WORLD-WRITE. Broad write permissions
+<a id="cfg-world-write-broad-write-permissions"></a>
 
-**Search:** scanner rule CFG-WORLD-WRITE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-WORLD-WRITE` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-WORLD-WRITE. Широкие права записи
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-WORLD-WRITE. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-WORLD-WRITE. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 chmod -R 777 /srv/app
 ~~~
 
-**Fix:** Set intended owner/group and minimum modes; do not recursively replace permissions blindly.
+**Исправление:** Определить владельца/группу и минимальные права; без рекурсивной замены вслепую.
 
 ~~~text
 chmod 750 /srv/app
 ~~~
 
-**Verification:** Service can write data; others cannot change code.
+**Проверка:** Процесс пишет нужные данные; посторонние не меняют код.
 
 <a id="cfg-nginx-list"></a>
 
-## CFG-NGINX-LIST. nginx directory listing
+<a id="cfg-nginx-list-nginx-directory-listing"></a>
 
-**Search:** scanner rule CFG-NGINX-LIST. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-NGINX-LIST` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-NGINX-LIST. Листинг каталога nginx
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-NGINX-LIST. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-NGINX-LIST. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 autoindex on;
 ~~~
 
-**Fix:** Disable listing unless it is required functionality.
+**Исправление:** Отключить ненужный листинг, если он не является частью функциональности.
 
 ~~~text
 autoindex off;
 ~~~
 
-**Verification:** Downloads work; private directory contents are not enumerated.
+**Проверка:** Загрузка файла работает; служебный каталог не раскрывается.
 
 <a id="cfg-nginx-alias"></a>
 
-## CFG-NGINX-ALIAS. Review nginx alias boundaries
+<a id="cfg-nginx-alias-review-nginx-alias-boundaries"></a>
 
-**Search:** scanner rule CFG-NGINX-ALIAS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-NGINX-ALIAS` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-NGINX-ALIAS. Проверить границы nginx alias
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-NGINX-ALIAS. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-NGINX-ALIAS. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 location /files { alias /srv/files/; }
 ~~~
 
-**Fix:** Align location /files/ with alias /srv/files/; review normalization/auth. Correct aliases also trigger review.
+**Исправление:** Согласовать location /files/ и alias /srv/files/; проверить нормализацию/auth. Корректный alias также даёт сигнал.
 
 ~~~text
 location /files/ { root /srv; } # verify mapping and auth
 ~~~
 
-**Verification:** Boundary URLs stay inside the root; old public URLs work.
+**Проверка:** Граничные URL не выходят из корня; старые URL работают.
 
 <a id="cfg-postgres-trust"></a>
 
-## CFG-POSTGRES-TRUST. PostgreSQL trust
+<a id="cfg-postgres-trust-postgresql-trust"></a>
 
-**Search:** scanner rule CFG-POSTGRES-TRUST. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-POSTGRES-TRUST` for details. Regex: POSTGRES_HOST_AUTH_METHOD=trust including JSON; pg_hba local/host/hostssl/hostnossl/hostgssenc/hostnogssenc with trust and CIDR or separate IPv4 netmask. Inspect HBA order and actual matching entries.
+## CFG-POSTGRES-TRUST. Доверенная аутентификация PostgreSQL
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-POSTGRES-TRUST. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-POSTGRES-TRUST. Regex: POSTGRES_HOST_AUTH_METHOD=trust, включая JSON; pg_hba local/host/hostssl/hostnossl/hostgssenc/hostnogssenc с trust, CIDR или отдельной IPv4-маской. Проверить порядок HBA и какие записи реально применяются.
+
+**Уязвимый вариант:**
 
 ~~~text
 POSTGRES_HOST_AUTH_METHOD: trust
 ~~~
 
-**Fix:** Use supported auth and coordinated application credentials; do not change organizer accounts/network.
+**Исправление:** Поддержанный метод auth и согласованные credentials своего приложения; не менять сеть/аккаунты организаторов.
 
 ~~~text
 POSTGRES_HOST_AUTH_METHOD: scram-sha-256
 ~~~
 
-**Verification:** Application connects; unknown credentials fail.
+**Проверка:** Сервис подключается; неизвестные credentials не принимаются.
 
 <a id="cfg-redis-protection"></a>
 
-## CFG-REDIS-PROTECTION. Redis protected-mode disabled
+<a id="cfg-redis-protection-redis-protected-mode-disabled"></a>
 
-**Search:** scanner rule CFG-REDIS-PROTECTION. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-REDIS-PROTECTION` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-REDIS-PROTECTION. Отключён protected-mode Redis
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-REDIS-PROTECTION. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-REDIS-PROTECTION. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 protected-mode no
 ~~~
 
-**Fix:** Review ACL, credentials, bind and clients against game rules without blocking required traffic.
+**Исправление:** Проверить ACL/credentials/bind и необходимый доступ; инфраструктурные изменения сверить с правилами, не блокировать игровой трафик.
 
 ~~~text
 protected-mode yes
 ~~~
 
-**Verification:** Application connects with minimum required permissions.
+**Проверка:** Приложение подключается с нужными правами.
 
 <a id="tpl-raw"></a>
 
-## TPL-RAW. Unescaped template output
+<a id="tpl-raw-unescaped-template-output"></a>
 
-**Search:** scanner rule TPL-RAW. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain TPL-RAW` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## TPL-RAW. Неэкранированный вывод шаблона
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило TPL-RAW. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain TPL-RAW. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 {{ message | safe }}
 ~~~
 
-**Fix:** Use normal escaped text output or a context-tested sanitizer for permitted HTML.
+**Исправление:** Штатный экранированный вывод текста; для богатого HTML sanitizer и тест контекста.
 
 ~~~text
 {{ message }}
 ~~~
 
-**Verification:** User markup stays text and layout remains intact.
+**Проверка:** Разметка пользователя - текст; штатная верстка сохранена.
 
 <a id="src-mixed-identifier"></a>
 
-## SRC-MIXED-IDENTIFIER. Mixed Latin/Cyrillic/Greek identifier
+<a id="src-mixed-identifier-mixed-latincyrillicgreek-identifier"></a>
 
-**Search:** scanner rule SRC-MIXED-IDENTIFIER. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain SRC-MIXED-IDENTIFIER` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## SRC-MIXED-IDENTIFIER. Смешение Latin/Cyrillic/Greek в одном слове
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило SRC-MIXED-IDENTIFIER. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain SRC-MIXED-IDENTIFIER. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 uuіd = input_value
 ~~~
 
-**Fix:** Inspect code points/references and use distinguishable names and the validated value; never blindly rename text.
+**Исправление:** Проверить code points и все ссылки на переменную; дать различимые имена и использовать проверенное значение. Не переименовывать слепой заменой по файлу.
 
 ~~~text
 validated_uuid = parse_uuid(input_value)
 ~~~
 
-**Verification:** Validation and consumption use the same value; invalid input fails. Strings/comments may be harmless.
+**Проверка:** Ветвь валидации и потребитель используют одно значение; тест с недопустимым вводом. Совпадения в строках/комментариях могут быть безвредны.
 
-**A/D variant:** Unicode lookalikes and unchecked identifiers. **ENOWARS / replme, author and patch.** A similar-looking variable letter left the original UUID unchecked; a filesystem operation used it rather than the middleware-authorized object.
+**Вариант A/D:** Unicode-двойник и использование непроверенного ID. **ENOWARS / replme, автор + патч.** Похожая буква в имени переменной оставляла
+оригинальный UUID необработанным; файловая операция использовала его вместо
+объекта, уже проверенного middleware.
 
-**Patch:** Use the authorized object's ID, unambiguous variable names and filename/root checks. **Test:** Another query ID cannot change the authorized object; malformed UUIDs fail. **Search:** SRC-MIXED-IDENTIFIER; SRC-BIDI-CONTROL is an additional general check, not a claim about this service.
+**Патч:** использовать ID из авторизованного объекта, однозначные имена переменных,
+проверку имени файла/корня. **Тест:** другой query-ID не меняет разрешённый объект;
+некорректный UUID отвергается. **Поиск:** SRC-MIXED-IDENTIFIER;
+SRC-BIDI-CONTROL - дополнительная общая проверка, не факт об этом сервисе.
 
-[source/write-up 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [source/write-up 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [source/write-up 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [source/write-up 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [source/write-up 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [source/write-up 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
+[исходник/разбор 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [исходник/разбор 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [исходник/разбор 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [исходник/разбор 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [исходник/разбор 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [исходник/разбор 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
 
 <a id="src-bidi-control"></a>
 
-## SRC-BIDI-CONTROL. Bidirectional text control in source
+<a id="src-bidi-control-bidirectional-text-control-in-source"></a>
 
-**Search:** scanner rule SRC-BIDI-CONTROL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain SRC-BIDI-CONTROL` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## SRC-BIDI-CONTROL. Управление направлением текста в исходнике
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило SRC-BIDI-CONTROL. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain SRC-BIDI-CONTROL. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 # direction ‮ marker
 ~~~
 
-**Fix:** Inspect actual Unicode/token order and remove unnecessary controls; review legitimate localization separately.
+**Исправление:** Показать Unicode code points и реальный порядок токенов, убрать ненужные управляющие символы. Легитимный текст локализации проверить отдельно.
 
 ~~~text
 # explicit plain-text comment
 ~~~
 
-**Verification:** Rendered and actual flow agree; copying does not restore controls.
+**Проверка:** Реальный поток управления совпадает с отображением; символ не восстановился при копировании.
 
 <a id="cfg-redis-acl"></a>
 
-## CFG-REDIS-ACL. Redis ACL user without a password
+<a id="cfg-redis-acl-redis-acl-user-without-a-password"></a>
 
-**Search:** scanner rule CFG-REDIS-ACL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-REDIS-ACL` for details. Regex selects user lines, then a bounded parser reads the physical line up to 8192 characters: lowercase user, one ASCII space before a nonempty username and ordinary modifier spaces. on/off/reset and nopass/resetpass/>password/#64lowerhex are processed in order; both final flags must be explicitly true. Names, passwords and key/channel patterns are not flags. Quotes, escapes, internal tabs, selectors and unknown operations need review; long lines are partial. This is not effective ACL analysis: inspect includes/runtime, grant validity, password strength and existing connections.
+## CFG-REDIS-ACL. Redis ACL-пользователь без пароля
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-REDIS-ACL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-REDIS-ACL. Regex выбирает строку user, затем ограниченный разбор полной физической строки до 8192 символов: lowercase user, один ASCII space перед непустым username, обычные spaces между модификаторами. on/off/reset и nopass/resetpass/>password/#64lowerhex учитываются по порядку; сигнал только когда обе итоговые flags явно true. Имена, пароли и key/channel patterns не считаются flags. Кавычки, escapes, внутренние tabs, selectors и неизвестные операции остаются ручными; длинная строка даёт partial. Это не эффективный ACL: строки/include/runtime, валидность grants, сила пароля и существующие соединения проверяются вручную.
+
+**Уязвимый вариант:**
 
 ~~~text
 user default on nopass ~* &* +@all
 ~~~
 
-**Fix:** First provision credentials and minimum commands/keys/channels for an app user; migrate clients and test AUTH/reconnect. Only then remove nopass or disable default. An empty > value is not a secure password.
+**Исправление:** Сначала подготовить именованного пользователя приложения с
+отдельным сгенерированным credential и минимальными командами/ключами/каналами.
+Передать credential клиентам защищённым способом, переключить их на явную
+аутентификацию и проверить переподключение всех пулов. Только после этого
+отключать ненужный `default`. Для сервиса, который должен сохранить `default`,
+согласованно настроить его пароль и обновить клиентов вместо отключения.
+Финальная строка после перехода клиентов на подготовленного пользователя `app`:
 
 ~~~text
 user default off
 ~~~
 
-off prevents new authentication but does not terminate already authenticated connections. Plan their treatment while preserving administration and rollback. default on nopass makes new connections already authenticated; a named user's nopass accepts any AUTH password. [Redis ACL on/off behavior](https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/).
+Само `off` запрещает новую аутентификацию, но уже аутентифицированные соединения
+не обрывает. Их судьбу предусмотреть в переходе, сохранив административный доступ
+и возможность отката. У `default on nopass` новое соединение уже аутентифицировано;
+для именованного пользователя `nopass` допускает любой пароль при AUTH.
+[Redis: ACL и поведение on/off](https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/).
 
-**Verification:** New app-user connections work before disabling default; new anonymous connections then fail. Check existing connections, namespaces, Pub/Sub and transactions.
+**Проверка:** Штатный клиент успешно проходит AUTH и переподключается; аноним
+и соседний namespace не получают защищённые данные. Проверить команды,
+транзакции, Pub/Sub и фоновые процессы, затем старые соединения и перезапуск.
+Отсутствие CFG-REDIS-ACL означает только отсутствие распознанного сочетания
+`on` + `nopass`, а не надёжный пароль или корректные полномочия.
 
-ACL directives apply in order. off after on, resetpass after nopass, or reset changes the result; nopass after adding a password re-enables unchecked authentication. >password and a valid # followed by 64 lowercase hex characters clear nopass. Even > with an empty password clears it: disappearance of the signal does not fix authentication. ~nopass is a key pattern, not a password directive. [Redis 7.2.7 ACL implementation](https://github.com/redis/redis/blob/7.2.7/src/acl.c).
+ACL-директивы применяются последовательно. `off` после `on`, `resetpass`
+после `nopass` или `reset` меняют итог; `nopass` после добавления пароля вновь
+разрешает вход без проверки пароля. `>password` и корректный `#` с 64 строчными
+hex-символами снимают `nopass`. Даже токен `>` с пустым паролем его снимает:
+исчезновение сигнала не является исправлением аутентификации.
+`~nopass` - шаблон ключа, а не парольная директива.
+[Реализация ACL Redis 7.2.7](https://github.com/redis/redis/blob/7.2.7/src/acl.c).
 
-The scanner parses a bounded common subset of redis.conf/aclfile lines. It tracks complete tokens/order within one line, not cross-line state or successful loading. Quotes, escaping, internal tabs and selectors need review because main-config/aclfile tokenization differs. Do not append inline comments to ACL lines: # may begin a password-hash token. Also review includes, requirepass, repeated definitions and runtime ACL SETUSER/ACL LOAD. [Redis 7.2.7 config parser](https://github.com/redis/redis/blob/7.2.7/src/config.c).
+Сканер разбирает ограниченное общее подмножество строк `redis.conf` и aclfile.
+Полные токены и их порядок учитываются внутри одной строки; состояние между
+строками и фактическая успешность загрузки не устанавливаются. Кавычки,
+экранирование, внутренние TAB и selectors требуют ручного просмотра:
+токенизация основного конфига и aclfile различается. Не дописывать inline
+комментарий к ACL-строке: `#` может начинать токен хеша, а не комментарий.
+Также проверить include,
+`requirepass`, повторные определения и runtime `ACL SETUSER`/`ACL LOAD`.
+[Парсер конфигурации Redis 7.2.7](https://github.com/redis/redis/blob/7.2.7/src/config.c).
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -o -e '(^[[:blank:]]*(user|aclfile|include|requirepass)[[:blank:]])|ACL[[:blank:]]+(SETUSER|LOAD|SAVE|GETUSER|LIST)' .
 ~~~
 
-The command prints directive names/locations only, not credential arguments. Privately trace loaded files and every update to the selected user. An authorized administrator should inspect effective flags/commands/keys/channels with ACL GETUSER app and test a new connection with correct/incorrect credentials. GETUSER also returns hashes: never copy them/password fields into reports, logs or shell history. requirepass in one file does not prove it applies to the running process. [Redis ACL GETUSER](https://redis.io/docs/latest/commands/acl-getuser/).
+Команда выводит только имена директив и позиции, без аргументов с credentials.
+Локально проследить загружаемые файлы и все изменения нужного пользователя.
+В разрешённом окружении администратору сверить эффективные flags/команды/ключи/
+каналы через `ACL GETUSER app` и отдельную проверку нового подключения с верным
+и неверным паролем. Ответ GETUSER содержит также хеши: не переносить их и поля
+паролей в отчёт, логи и shell history. Наличие `requirepass` в одном файле
+не доказывает, что оно действует в запущенном процессе.
+[Redis: ACL GETUSER](https://redis.io/docs/latest/commands/acl-getuser/).
 
 <a id="cfg-mongo-noauth"></a>
 
-## CFG-MONGO-NOAUTH. MongoDB authorization disabled
+<a id="cfg-mongo-noauth-mongodb-authorization-disabled"></a>
 
-**Search:** scanner rule CFG-MONGO-NOAUTH. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-MONGO-NOAUTH` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-MONGO-NOAUTH. MongoDB authorization явно отключена
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-MONGO-NOAUTH. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-MONGO-NOAUTH. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 security:
   authorization: disabled
 ~~~
 
-**Fix:** Prepare application credentials and least-privilege roles before enabling auth on an owned service.
+**Исправление:** Для своего сервиса подготовить роли/учётные данные до включения auth; приложению только нужная БД и действия.
 
 ~~~text
 security:
   authorization: enabled
 ~~~
 
-**Verification:** Restart/reconnect and CRUD work; anonymous access fails. Do not alter organizer accounts.
+**Проверка:** Перезапуск, переподключение, обычные CRUD; анониму отказ. Не менять аккаунты организаторов.
 
-**Reference:** [primary source](https://www.mongodb.com/docs/manual/core/authorization/).
+**Основание:** [первичный материал](https://www.mongodb.com/docs/manual/core/authorization/).
 
 <a id="cfg-capabilities"></a>
 
-## CFG-CAPABILITIES. Broad container capabilities
+<a id="cfg-capabilities-broad-container-capabilities"></a>
 
-**Search:** scanner rule CFG-CAPABILITIES. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-CAPABILITIES` for details. Regex: cap_add or capabilities.add with SYS_ADMIN/ALL in flow/block lists. capabilities.drop:[ALL] alone is not a grant. Bounded text windows are not YAML parsing; review nesting, merges/anchors and actual securityContext.
+## CFG-CAPABILITIES. Широкие capabilities контейнера
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-CAPABILITIES. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-CAPABILITIES. Regex: cap_add или capabilities.add с SYS_ADMIN/ALL, flow/block list. capabilities.drop:[ALL] сам по себе не является выдачей прав. Это ограниченное текстовое окно, не YAML parser; вложенность, merge/anchor и применённый securityContext вручную.
+
+**Уязвимый вариант:**
 
 ~~~text
 cap_add: [SYS_ADMIN]
 ~~~
 
-**Fix:** Remove unnecessary capabilities only on owned services; retain proven requirements and verify user/port/volume permissions.
+**Исправление:** У своего сервиса удалить лишние capabilities, вернуть только доказанно необходимые. Проверить uid, порты и права томов до выкладки.
 
 ~~~text
 cap_drop: [ALL]
 ~~~
 
-**Verification:** Startup/checker and required syscalls work; do not apply this to organizer launchers.
+**Проверка:** Запуск и checker после изменения; required syscall не сломан. Не применять к launcher/инфраструктуре организаторов.
 
-**Reference:** [primary source](https://docs.docker.com/engine/security/).
+**Основание:** [первичный материал](https://docs.docker.com/engine/security/).
 
 <a id="cfg-build-secret"></a>
 
-## CFG-BUILD-SECRET. Secret in Dockerfile ARG/ENV
+<a id="cfg-build-secret-secret-in-dockerfile-argenv"></a>
 
-**Search:** scanner rule CFG-BUILD-SECRET. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-BUILD-SECRET` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-BUILD-SECRET. Секрет в ARG/ENV Dockerfile
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-BUILD-SECRET. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-BUILD-SECRET. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 ARG API_TOKEN=example
 ~~~
 
-**Fix:** Use build secret mounts instead of ARG/ENV/layers. Rotate published secrets deliberately; later deletion does not erase an earlier layer.
+**Исправление:** Build secret mount вместо ARG/ENV/слоя; уже опубликованный секрет заменить согласованно, удаление следующей инструкцией не очищает прошлый слой.
 
 ~~~text
 RUN --mount=type=secret,id=api_token build-with-secret
 ~~~
 
-**Verification:** Build history/logs disclose no secret; runtime secrets are separate. The sample build command is a placeholder.
+**Проверка:** Сборка без утечки в history/logs; runtime получает свой секрет отдельно. Команда в примере - placeholder.
 
-**Reference:** [primary source](https://docs.docker.com/build/building/secrets/).
+**Основание:** [первичный материал](https://docs.docker.com/build/building/secrets/).
 
 <a id="cfg-nginx-auth-off"></a>
 
-## CFG-NGINX-AUTH-OFF. Nested nginx location disables auth_request
+<a id="cfg-nginx-auth-off-nested-nginx-location-disables-auth_request"></a>
 
-**Search:** scanner rule CFG-NGINX-AUTH-OFF. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-NGINX-AUTH-OFF` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## CFG-NGINX-AUTH-OFF. Вложенный location отключает auth_request
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило CFG-NGINX-AUTH-OFF. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-NGINX-AUTH-OFF. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~text
 location /export/ { auth_request off; }
 ~~~
 
-**Fix:** Review location selection/inheritance and remove unintended auth bypass while preserving intended public endpoints.
+**Исправление:** Проверить effective location и одинаковую политику для download/export/internal redirect. Публичные пути оставлять по контракту.
 
 ~~~text
 location /export/ { auth_request /verify; }
 ~~~
 
-**Verification:** Protected resources require authentication through every matching location; health/login works.
+**Проверка:** Авторизованный экспорт работает, анонимный/чужой - нет. Не менять сетевую схему.
 
-**Reference:** [primary source](https://nginx.org/en/docs/http/ngx_http_auth_request_module.html).
+**Основание:** [первичный материал](https://nginx.org/en/docs/http/ngx_http_auth_request_module.html).
 
 <a id="cfg-file-mode"></a>
 
-## CFG-FILE-MODE. Configuration, data-directory and ACL permissions
+<a id="cfg-file-mode-configuration-data-directory-and-acl-permissions"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-FILE-MODE. Права конфигов, каталога данных и ACL
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'chmod|chown|umask|setfacl|mode:|permissions' .
 ~~~
 
-In an authorized environment inspect ls -ld for the file and every parent; on Linux also inspect getfacl. Compare process uid/gid.
+В локальном/разрешённом окружении проверить ls -ld для файла и всех родителей; на Linux также getfacl. Сопоставить uid/gid процесса.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Another local user can read secrets, or a writable parent permits replacing a protected file.
+Секрет читается соседним пользователем или parent dir позволяет заменить защищённый файл.
 
-**Fix:** Minimal file/parent permissions, separate writable data and private temporary storage; never chmod -R 777 or break volume ownership.
+**Исправление:** Минимальные права файла и родителей, отдельный writable data dir, private temp; не делать chmod -R 777 и не ломать uid тома.
 
-**Verification:** The app reads required config and writes data after restart; unrelated local users gain no access.
+**Проверка:** Приложение читает нужное/пишет данные после restart; посторонний local user доступа не получает.
 
 <a id="cfg-bind-mount"></a>
 
-## CFG-BIND-MOUNT. Writable mounts expose hosts or neighboring data
+<a id="cfg-bind-mount-writable-mounts-expose-hosts-or-neighboring-data"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-BIND-MOUNT. Writable mount раскрывает хост или соседние данные
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'volumes:|bind|source:|target:|read_only|hostPath' .
 ~~~
 
-Match Compose/Kubernetes mounts to the authorized runtime inventory: host source, container destination, read/write mode and propagation.
+Сопоставить Compose/K8s mount со своим runtime inventory: host source, container target, ro/rw и propagation.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An unnecessary writable mount lets the application modify host code, configuration or directories.
+Приложение может менять код, конфиги или каталог хоста через ненужный writable mount.
 
-**Fix:** Only necessary paths, read-only where possible and separate data volumes; preserve required runtime permissions.
+**Исправление:** Только необходимые пути, read-only где запись не нужна, отдельный data volume; сохранить runtime permissions.
 
-**Verification:** Startup, writes, checker and restart work without changing code or unrelated directories.
+**Проверка:** Старт/запись/checker и restart работают; код/чужой каталог не меняется.
 
-**Reference:** [primary source](https://docs.docker.com/engine/storage/bind-mounts/).
+**Основание:** [первичный материал](https://docs.docker.com/engine/storage/bind-mounts/).
 
 <a id="cfg-k8s-rbac"></a>
 
-## CFG-K8S-RBAC. Workload bound to cluster-admin
+<a id="cfg-k8s-rbac-workload-bound-to-cluster-admin"></a>
 
-**Search:** scanner rule CFG-K8S-RBAC. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-K8S-RBAC` for details. Regex: name:cluster-admin. Does not connect roleRef to subjects or find equivalent wildcard roles; inspect remaining RBAC manually.
+## CFG-K8S-RBAC. ServiceAccount и wildcard RBAC
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** скрипт, правило CFG-K8S-RBAC. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-K8S-RBAC. Regex: name:cluster-admin. Не связывает roleRef с subjects и не ищет эквивалентную wildcard роль; остальные RBAC случаи искать вручную.
+
+Дополнительный ручной поиск для непокрытых форм:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'automountServiceAccountToken|serviceAccountName|ClusterRole|verbs:|resources:' .
 ~~~
 
-Trace pod → serviceAccount → RoleBinding/ClusterRoleBinding; review secrets, exec and bind/escalate permissions.
+Найти pod -> serviceAccount -> RoleBinding/ClusterRoleBinding; проверить доступ к secrets, exec и bind/escalate.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A business pod receives an administrative token despite not needing Kubernetes API access.
+Бизнес-pod получает административный token, хотя Kubernetes API не нужен.
 
-**Fix:** Use a least-privilege Role and namespaced RoleBinding; review subjects, verbs, resources, names and impersonate/bind/escalate.
+**Исправление:** Для своей управляемой установки - Role с минимальными правами и RoleBinding в нужном namespace. Проверить subjects, verbs, resources, names и полномочия impersonate/bind/escalate. Выключить ненужный automount; ограничения admission отдельно.
 
-**Verification:** Runtime identity can perform only required operations, not read foreign Secrets or grant rights.
+**Проверка:** Runtime-пользователь выполняет только нужные операции, не читает чужие Secrets и не выдаёт права; приложение запускается. Не менять cluster организаторов.
 
-**Reference:** [primary source](https://kubernetes.io/docs/concepts/security/rbac-good-practices/).
+**Основание:** [первичный материал](https://kubernetes.io/docs/concepts/security/rbac-good-practices/).
 
-**Scanner example before:**
+
+**Сигнал сканера - пример до:**
 
 ~~~config
 roleRef:
@@ -569,7 +673,7 @@ roleRef:
   name: cluster-admin
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~config
 roleRef:
@@ -578,565 +682,661 @@ roleRef:
   name: notes-read-config
 ~~~
 
-Primary documentation: [reference 1](https://kubernetes.io/docs/reference/access-authn-authz/rbac/).
+Первичная документация: [документация 1](https://kubernetes.io/docs/reference/access-authn-authz/rbac/).
 
 <a id="cfg-nginx-location"></a>
 
-## CFG-NGINX-LOCATION. URI normalization and location selection
+<a id="cfg-nginx-location-uri-normalization-and-location-selection"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-NGINX-LOCATION. Нормализация URI и разные location
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'location|alias|root|try_files|rewrite|proxy_pass' .
 ~~~
 
-For the authorized configuration trace exact/prefix/regex locations and internal redirects; compare the URI the backend receives.
+Для своего конфига пройти выбор exact/prefix/regex location и internal redirect; сравнить URI, увиденный backend.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Authorization checks one path while proxy/filesystem normalization or fallback selects another.
+Auth проверяет один путь, proxy/filesystem получает иной после нормализации или fallback.
 
-**Fix:** Unambiguous routes/root boundaries and authorization on the actual resource; consistent decoding policies across layers.
+**Исправление:** Однозначные маршруты/границы root и auth на реальном ресурсе; согласованные правила decoding между слоями.
 
-**Verification:** Slash/encoding variants, normal paths, regex locations and fallbacks never change permissions.
+**Проверка:** Slash/encoding/normal path, regex location и fallback не меняют права.
 
-**Reference:** [primary source](https://nginx.org/en/docs/http/ngx_http_core_module.html).
+**Основание:** [первичный материал](https://nginx.org/en/docs/http/ngx_http_core_module.html).
 
 <a id="cfg-static-secrets"></a>
 
-## CFG-STATIC-SECRETS. Static roots expose .git, backups, databases and logs
+<a id="cfg-static-secrets-static-roots-expose-git-backups-databases-and-logs"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-STATIC-SECRETS. Static root публикует .git, backup, БД и логи
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'static|document_root|root |alias |send_from_directory|FileServer' .
 ~~~
 
-Inspect the actual public root, symlinks and fallback routes; locate files with rg --files --hidden -g !.git.
+Сверить содержимое именно public root, symlinks и fallback; поиск файлов: rg --files --hidden -g !.git.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The project root serves config, backup.sql, SQLite/WAL, archives or credentials.
+Из корня проекта раздаются config, backup.sql, SQLite/WAL, архивы или credentials.
 
-**Fix:** A separate public build directory, private storage outside it and authenticated downloads; blocking one extension is insufficient.
+**Исправление:** Отдельный public build directory, приватное хранение вне него и authenticated download; не надеяться только на запрет одного расширения.
 
-**Verification:** Assets work; hidden files, backups and outward links are never served.
+**Проверка:** Assets работают, скрытые файлы/backup/ссылка наружу не выдаются.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
 
 <a id="cfg-cookie-flags"></a>
 
-## CFG-COOKIE-FLAGS. Explicitly weakened session cookie flags
+<a id="cfg-cookie-flags-explicitly-weakened-django-cookie-flags"></a>
 
-**Search:** scanner rule CFG-COOKIE-FLAGS. Use `--explain CFG-COOKIE-FLAGS` for the exact detector contract. Regex with lexical exclusions: bare Django SESSION_COOKIE_HTTPONLY/SESSION_COOKIE_SECURE/CSRF_COOKIE_SECURE=false/0. Python AST: known Flask config subscript/update/from_mapping with disabled session HttpOnly/Secure. JS bounded tokens: default imported express-session with inline cookie.httpOnly:false. Dynamic configs/defaults remain manual. JS secure:false alone is not a new signal; HTTPS/checker compatibility must be reviewed.
+<a id="cfg-cookie-flags-explicitly-weakened-session-cookie-flags"></a>
 
-Additional manual search for forms outside automatic coverage:
+## CFG-COOKIE-FLAGS. Явно ослабленные флаги session cookies
+
+**Поиск:** правило сканера CFG-COOKIE-FLAGS. Подробности: `--explain CFG-COOKIE-FLAGS`. Regex исключает комментарии/строки: обычные Django SESSION_COOKIE_HTTPONLY/SESSION_COOKIE_SECURE/CSRF_COOKIE_SECURE=false/0. Python AST: известный Flask config[index]/update/from_mapping с отключёнными session HttpOnly/Secure. JS-токены: default import express-session с inline cookie.httpOnly:false. Динамическая конфигурация и defaults проверяются вручную. JS secure:false сам по себе не новый сигнал; учитывайте HTTPS и HTTP-checker.
+
+Дополнительный ручной поиск форм, которые не покрывает автоматическое правило:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Set-Cookie|HttpOnly|SameSite|Secure|cookie.domain|cookie.path' .
 ~~~
 
-Compare effective Set-Cookie with actual HTTP/TLS/proxy topology; Domain/Path are not authorization.
+Сопоставьте фактический Set-Cookie с топологией HTTP/TLS/proxy; Domain/Path не заменяют авторизацию.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Private cookies reach unnecessary hosts/paths, are unnecessarily accessible to JavaScript or disappear because Secure is misconfigured.
+Приватные cookies передаются ненужным hosts/путям, без необходимости доступны JavaScript или исчезают из-за неверной настройки Secure.
 
-**Fix:** Keep session cookies HttpOnly and use Secure where the approved service transport supports HTTPS; changing Secure on an HTTP-only checker requires a coordinated transport decision.
+**Исправление:** Сохраняйте HttpOnly для сессионных cookies и используйте Secure, если согласованный транспорт сервиса поддерживает HTTPS; включение Secure при checker, работающем только по HTTP, требует согласованного изменения транспорта.
 
-**Verification:** Scripts cannot read session cookies; sessions work over the intended transport and secure cookies are not sent over plaintext.
+**Проверка:** Скрипты не читают сессионные cookies; сессии работают по предусмотренному транспорту, а secure cookies не отправляются по незашифрованному соединению.
 
 
-**Scanner example before:**
+**Пример для сканера до исправления:**
 
 ~~~config
 SESSION_COOKIE_HTTPONLY = False
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~config
 SESSION_COOKIE_HTTPONLY = True
 ~~~
 
-
 <a id="cfg-trusted-headers"></a>
 
-## CFG-TRUSTED-HEADERS. Backends trust client-supplied user, role or IP
+<a id="cfg-trusted-headers-backends-trust-client-supplied-user-role-or-ip"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-TRUSTED-HEADERS. Backend доверяет клиентскому user/role/IP
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'X-User|X-Role|X-Forwarded|Forwarded|Remote-User|X-Original' .
 ~~~
 
-Trace which component sets/clears headers and whether the backend is reachable around the trusted proxy.
+Проследить кто устанавливает/очищает заголовок и доступен ли backend в обход доверенного proxy.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The application accepts client X-User as verified identity.
+Приложение считает присланный X-User подтверждённой identity.
 
-**Fix:** Application credentials or authenticated trusted peers, with forwarded identity sanitized according to topology; one secret header is not universal authentication.
+**Исправление:** Прикладная проверка credential/trusted peer и очистка forwarded identity по реальной архитектуре; один секретный header не универсальный auth.
 
-**Verification:** Direct requests and forged headers confer no rights; legitimate proxy traffic works.
+**Проверка:** Прямой запрос и поддельный header не дают права; штатный proxy проходит.
 
 <a id="cfg-cache-auth"></a>
 
-## CFG-CACHE-AUTH. Shared HTTP caches retain personalized responses
+<a id="cfg-cache-auth-shared-http-caches-retain-personalized-responses"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-CACHE-AUTH. Общий HTTP cache сохраняет персональный ответ
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'proxy_cache|Cache-Control|Vary|Authorization|Set-Cookie|cache_key' .
 ~~~
 
-Review cache keys, bypass conditions and cookie/authenticated responses; compare two users at the same URL.
+Сверить cache key, условия bypass и ответы с cookie/auth; сравнить два пользователя на одном URL.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A private response cached solely by URI is returned to another session.
+Приватный body кешируется только по URI и выдаётся другой сессии.
 
-**Fix:** Never share personalized responses under a common key; contractual private/no-store or full context isolation with correct invalidation.
+**Исправление:** Не кешировать персональные ответы общим ключом; private/no-store по контракту либо полная изоляция контекста и корректная инвалидация.
 
-**Verification:** User A then B at the same URL, logout/role changes and normal public caching.
+**Проверка:** A затем B на том же URL, logout/смена роли, штатный публичный cache.
 
 <a id="cfg-debug-endpoint"></a>
 
-## CFG-DEBUG-ENDPOINT. Diagnostics become public APIs
+<a id="cfg-debug-endpoint-diagnostics-become-public-apis"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-DEBUG-ENDPOINT. Диагностика доступна как публичный API
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'actuator|swagger|debug|pprof|metrics|heapdump|console|env' .
 ~~~
 
-List actually registered endpoints and access policy for each; /health alone is not suspicious.
+Перечислить реально зарегистрированные endpoint и доступ к каждому; имя /health само по себе нормально.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Environment, heap dumps or configuration consoles expose secrets or application control.
+Env/heapdump/config console раскрывает секреты или позволяет изменить приложение.
 
-**Fix:** Disable unnecessary diagnostics in the owned service or enforce application authorization; preserve required health/organizer monitoring.
+**Исправление:** Отключить ненужную диагностику своего сервиса либо прикладная авторизация; оставить требуемый health и monitoring организаторов.
 
-**Verification:** Health/checker work; anonymous environment/dump/control access fails.
+**Проверка:** Health/checker остаются, анонимный env/dump/control недоступен.
 
 <a id="cfg-error-secret"></a>
 
-## CFG-ERROR-SECRET. Logs expose credentials or private request bodies
+<a id="cfg-error-secret-logs-expose-credentials-or-private-request-bodies"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-ERROR-SECRET. Логи содержат credentials/тела приватных запросов
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'logger|logging|console.log|print|Authorization|password|token' .
 ~~~
 
-Find whole-request/config/exception logging, debug traces and every log destination.
+Найти логирование whole request/config/exception, debug trace и куда попадает журнал.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Passwords, signatures or private bodies are unnecessarily logged and exposed through endpoints/volumes.
+Пароль, подпись или приватный body пишутся без необходимости и доступны через log endpoint/volume.
 
-**Fix:** Secret-free structured fields, redaction before serialization and minimal access/retention; preserve useful error codes.
+**Исправление:** Структурные поля без секретов, redaction до сериализации, минимальный доступ/retention; сохранить полезные коды ошибок.
 
-**Verification:** Failed requests remain diagnosable without secret values or API stack traces.
+**Проверка:** Ошибочные запросы диагностируются без секретных значений и stacktrace в API.
 
 <a id="cfg-resource-limits"></a>
 
-## CFG-RESOURCE-LIMITS. Body, decompression and multipart limits
+<a id="cfg-resource-limits-body-decompression-and-multipart-limits"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-RESOURCE-LIMITS. Лимиты тела, decompression и multipart
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'bodyLimit|maxRequest|client_max_body_size|multipart|decompress|timeout' .
 ~~~
 
-Check limits before reads, after decompression, per part and per complete message; proxy and app limits may differ.
+Сверить limit до чтения, после распаковки и на каждую часть/всё сообщение; приложение и proxy могут отличаться.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Small compressed input expands into a huge body, or parts/headers are unbounded.
+Небольшой compressed input создаёт большое тело; число частей/заголовков не ограничено.
 
-**Fix:** Contractual budgets for actual bytes, parts, time and output; cleanup on failure.
+**Исправление:** Бюджеты по контракту для фактических байтов, parts, времени и результата; cleanup при отказе.
 
-**Verification:** Limit±1, missing Content-Length, compressed bodies, many parts and the legitimate maximum.
+**Проверка:** Лимит±1, без Content-Length, compressed body, много частей и легитимный максимум.
 
 <a id="cfg-upload-exec"></a>
 
-## CFG-UPLOAD-EXEC. Uploads become executable or active content
+<a id="cfg-upload-exec-uploads-become-executable-or-active-content"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-UPLOAD-EXEC. Upload становится исполняемым или active content
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'upload|media|public|cgi|fastcgi|Content-Type|Content-Disposition' .
 ~~~
 
-Compare storage paths, server handlers and browser MIME behavior; client filename/Content-Type does not prove type.
+Сопоставить место записи, правила web server и mime браузера; имя/Content-Type клиента не доказательство типа.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An uploaded document executes server-side or opens as active HTML within the app origin.
+Загруженный документ исполняется сервером или открывается active HTML в origin приложения.
 
-**Fix:** Private nonexecutable storage, server-generated filenames, type validation and serving policy; safe download headers.
+**Исправление:** Приватное неисполняемое хранение, server filename, проверка типа и policy выдачи; для скачивания безопасные headers.
 
-**Verification:** Upload/download/previews work without turning files into server code or cross-user origin scripts.
+**Проверка:** Upload/download и previews работают; файл не становится серверным кодом/чужим origin-сценарием.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
 
 <a id="cfg-http-parser"></a>
 
-## CFG-HTTP-PARSER. Proxy and backend disagree on framing
+<a id="cfg-http-parser-proxy-and-backend-disagree-on-framing"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-HTTP-PARSER. Proxy и backend расходятся в framing
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Content-Length|Transfer-Encoding|http_parser|proxy_http_version|keepalive' .
 ~~~
 
-Check HTTP parser versions and contradictory length/encoding handling; test only an isolated environment.
+Проверить версии HTTP parsers и политику противоречивых длины/кодирования; тестировать только изолированный стенд.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Layers disagree about request boundaries and a following request enters another context.
+Слои по-разному определяют конец запроса, следующий запрос попадает в иной контекст.
 
-**Fix:** Compatible patched parsers, one strict framing policy and rejection of ambiguity; do not attempt payload-regex repairs.
+**Исправление:** Совместимые исправленные parsers, единая строгая политика framing и отказ неоднозначным сообщениям; не пытаться чинить regex по payload.
 
-**Verification:** Normal keepalive/chunked behavior, conflicting framing and safe connection closure without mixed responses.
+**Проверка:** Обычные keepalive/chunked, противоречивый framing и закрытие соединения без смешения ответов.
 
 <a id="cfg-cors-credentials"></a>
 
-## CFG-CORS-CREDENTIALS. CORS reflects Origin with credentials
+<a id="cfg-cors-credentials-cors-reflects-origin-with-credentials"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-CORS-CREDENTIALS. CORS отражает Origin вместе с credentials
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Access-Control-Allow-Origin|allow_credentials|origin:|credentials:|CORS' .
 ~~~
 
-Compare allowed and foreign Origin responses; browsers normally block wildcard+credentials, while arbitrary reflection is more dangerous.
+Сверить response к разрешённому и постороннему Origin; wildcard с credentials обычно блокируется браузером, reflection опаснее.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Every origin receives its own name reflected and permission to read private authenticated APIs.
+Любой origin получает своё имя обратно и разрешение credentialed чтения приватного API.
 
-**Fix:** Exact server-side origin allowlist, correct Vary and credential policy; CORS does not authorize nonbrowser requests.
+**Исправление:** Точная серверная allowlist origin, корректный Vary и credential policy; CORS не авторизует запросы вне браузера.
 
-**Verification:** The normal frontend works; foreign/null origins cannot read credentialed responses.
+**Проверка:** Штатный frontend работает; чужой/null origin не получает credentialed чтение.
 
 <a id="cfg-reset-token"></a>
 
-## CFG-RESET-TOKEN. Recovery or share tokens lack purpose or one-time use
+<a id="cfg-reset-token-recovery-or-share-tokens-lack-purpose-or-one-time-use"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-RESET-TOKEN. Recovery/share token без purpose и одноразовости
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'reset|recover|invite|share|token|expires|used_at' .
 ~~~
 
-Trace issuance/verification and atomic consumption; compare login/share/reset audiences.
+Проследить выдачу/проверку токена и атомарность consume; сравнить login/share/reset audiences.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A token for another operation or an already consumed token changes access again.
+Токен другого действия или уже использованный token повторно меняет доступ.
 
-**Fix:** CSPRNG/signatures bound to purpose/resource/subject/expiry, with transactional one-time consumption where required; preserve legitimate sharing.
+**Исправление:** CSPRNG/подпись с purpose/resource/subject/expiry, одноразовый consume в транзакции где это требуется; сохранение legit share.
 
-**Verification:** Replays/concurrent use, foreign objects/purposes, expiry and normal operation.
+**Проверка:** Повторное/параллельное использование, чужой объект/назначение, срок и штатная операция.
 
 <a id="cfg-object-policy"></a>
 
-## CFG-OBJECT-POLICY. Alternative endpoints expose an object directly
+<a id="cfg-object-policy-alternative-endpoints-expose-an-object-directly"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-OBJECT-POLICY. Прямой доступ к объекту через альтернативный endpoint
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'owner|tenant|download|export|delete|share|attachment|job' .
 ~~~
 
-Trace every operation and nested path for one entity, including background jobs; unpredictable IDs are not permission.
+Для одной сущности пройти все операции и вложенные пути, включая background jobs; ID непредсказуемый не значит разрешённый.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-UI/read paths are protected, but export/download/delete look up IDs without owner checks.
+UI/read защищены, export/download/delete обращаются по ID без проверки owner.
 
-**Fix:** One resource policy enforced for every operation, actor from verified session and explicit intended sharing.
+**Исправление:** Единая resource policy на каждой операции, субъект из verified session; sharing сохранить явным правилом.
 
-**Verification:** Two users/tenants can access their own resources and never each other's through any endpoint.
+**Проверка:** Два пользователя/tenant: своё можно, чужое нельзя по каждому endpoint.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
 
 <a id="cfg-deployed-config"></a>
 
-## CFG-DEPLOYED-CONFIG. Reviewing an example instead of effective configuration
+<a id="cfg-deployed-config-reviewing-an-example-instead-of-effective-configuration"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-DEPLOYED-CONFIG. Проверен пример, запущен другой конфиг
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'env_file|environment:|include|args:|command:|config|settings' .
 ~~~
 
-Compare entrypoint, includes, overrides and effective configuration. Expanded output may contain secrets; inspect it only privately.
+Сопоставить entrypoint, includes, override-файлы и эффективную конфигурацию. Вывод конфигов может содержать секреты - читать локально.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A sample is fixed while runtime environment/volumes supply an unsafe override.
+Исправили sample config, runtime получает небезопасный override из env/volume.
 
-**Fix:** Change the actual source of configuration, verify precedence and restart; keep secrets out of Git.
+**Исправление:** Менять реально используемый источник, проверить precedence и restart; секреты не добавлять в репозиторий.
 
-**Verification:** Correct effective values survive restart; the old copy never silently returns.
+**Проверка:** После restart эффективное значение исправлено, старая копия не вернулась.
 
 <a id="cfg-media-converter"></a>
 
-## CFG-MEDIA-CONVERTER. Media documents load additional resources
+<a id="cfg-media-converter-media-documents-load-additional-resources"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-MEDIA-CONVERTER. Загрузка ресурсов из медиадокумента
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'ffmpeg|magick|convert|thumbnail' .
 ~~~
 
-Determine which additional files/URLs the decoder reads after receiving a document.
+Проверить, какие дополнительные файлы/URL читает сам декодер после загрузки документа.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** bookster, RuCTF author write-up. An older FFmpeg could follow resources embedded in uploaded media while producing previews.
+**Основание:** bookster, авторский разбор RuCTF. Старый FFmpeg при создании
+превью мог обрабатывать ссылки из загруженного медиаконтейнера.
 
-**Search:** FFmpeg, ImageMagick, PDF/SVG/XML conversion, thumbnails/previews and embedded playlists/URLs. Separate the input file from additional resources the parser fetches; HTTP-handler URL checks alone are insufficient.
+**Искать:** FFmpeg, ImageMagick, PDF/SVG/XML-конвертеры, thumbnail/preview,
+встроенные playlist/URL; различать входной файл и дополнительные ресурсы,
+которые парсер читает сам. Проверки URL только в HTTP-обработчике недостаточно.
 
-**Fix:** Compatible patched builds, explicit allowed protocols/decoders, constrained input/output and process resources. Preserve promised formats/previews. Network firewall policy does not replace the fix.
+**Исправление:** исправленная совместимая сборка, явный разрешённый набор
+протоколов/декодеров, ограниченные input/output и ресурсы процесса. Не отключать
+предусмотренные форматы или превью целиком. Сетевой firewall не подменяет патч.
 
-**Verification:** Every allowed format, malformed files, embedded local-resource links and time/memory budgets.
+**Проверка:** все разрешённые форматы, повреждённый файл, вложенная ссылка на
+локальный ресурс, лимиты времени/памяти.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/bookster/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/bookster/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/bookster/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/bookster/README.md).
 
 <a id="cfg-format-transition"></a>
 
-## CFG-FORMAT-TRANSITION. Injection through intermediate YAML
+<a id="cfg-format-transition-injection-through-intermediate-yaml"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-FORMAT-TRANSITION. Инъекция через промежуточный YAML
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'yaml|unmarshal|safe_load|template' .
 ~~~
 
-Trace text → template → YAML → update object; type data at each boundary.
+Проследить текст -> шаблон -> YAML -> объект update; типизировать данные на каждой границе.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** lost_museum, RuCTF author write-up. A template generated YAML subsequently parsed into a MongoDB mutation map.
+**Основание:** lost_museum, авторский разбор RuCTF. Шаблон генерировал YAML,
+который затем разбирался в map для операции MongoDB.
 
-**Search:** String-formatted structured documents followed by unmarshal/parse and wholesale database updates. safe_load does not prevent unwanted fields; this differs from unsafe YAML constructors.
+**Искать:** форматирование структурированных документов строками, затем
+unmarshal/parse и передача всех полей в БД. safe_load не исправляет добавление
+нежелательных полей: это иной класс ошибки, чем небезопасные YAML-конструкторы.
 
-**Fix:** Typed structure → serializer, then explicit update-field projection; server-derived owner/role. Clients must not control MongoDB operation structure.
+**Исправление:** типизированная структура -> сериализатор; затем явная проекция полей
+для update, owner/role только с сервера. Не давать клиенту менять структуру
+MongoDB-операции.
 
-**Verification:** Newlines, colons, nested fields and normal text change only the intended field.
+**Проверка:** переносы строк, двоеточия, вложенные поля и обычный
+текст; изменение только разрешённого поля.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/lost_museum/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/lost_museum/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/lost_museum/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/lost_museum/README.md).
 
 <a id="cfg-principal-context"></a>
 
-## CFG-PRINCIPAL-CONTEXT. Clients modify authorization context
+<a id="cfg-principal-context-clients-modify-authorization-context"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-PRINCIPAL-CONTEXT. Клиент изменяет контекст авторизации
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'userspace|principal|currentUser|tenant' .
 ~~~
 
-Trace every principal write; DSLs and request parameters must not mutate server authorization context.
+Проследить каждую запись субъекта: DSL и параметры не должны менять server-auth context.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** scp, RuCTF author write-up: a DSL modified userspace used for visibility control. **Search:** currentUser/userspace/principal/tenant assignments from expressions, parameters or intermediate state, and authorization-mode switches.
+**Основание:** scp, авторский разбор RuCTF: DSL позволял менять userspace,
+использовавшийся для контроля видимости.
+**Искать:** присваивания currentUser, userspace, principal, tenant из выражений,
+параметров или промежуточного состояния; переключатели режима auth.
 
-**Fix:** Derive the actor from a verified session and store it apart from mutable DSL state. Sensitive operations check the server-owned context.
+**Исправление:** субъект запроса берётся из проверенной сессии, хранится отдельно от
+изменяемого контекста DSL. Все чувствительные операции сверяют его серверную
+версию.
 
-**Verification:** Expressions cannot change principal; owned objects remain accessible and foreign objects hidden regardless of expression order.
+**Проверка:** выражение не меняет principal; собственные объекты доступны,
+чужие скрыты при любом порядке выражений.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/scp/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/scp/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/scp/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/scp/README.md).
 
 <a id="cfg-auth-toctou"></a>
 
-## CFG-AUTH-TOCTOU. Authorization races and identifier reuse
+<a id="cfg-auth-toctou-authorization-races-and-identifier-reuse"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-AUTH-TOCTOU. TOCTOU и повторное использование ID
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'owner|tenant|middleware|await|UPDATE|DELETE' .
 ~~~
 
-Find waits/state changes between checking and writing; require owner/version conditions in atomic mutations.
+Найти ожидание/смену состояния между проверкой и записью; проверить owner/version в атомарном запросе.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** stalker, RuCTF author write-up. ORM authorization snapshots were taken before waiting for the request body; deletion/recreation changed identifier meaning.
+**Основание:** stalker, авторский разбор RuCTF. ORM-снимок прав создавался до
+ожидания тела запроса; удаление и повторное создание записей меняло смысл ID.
 
-**Search:** Middleware objects/ID lists → await/I/O → unchecked mutation, cached ORM relationships and IDs unique only within part of a composite key.
+**Искать:** объект/список ID в middleware -> await/I/O -> запись без новой проверки;
+кэшированные связи ORM; ID, уникальный лишь в части составного ключа.
 
-**Fix:** Check ownership atomically in UPDATE/DELETE/SHARE itself, using transactions/row versions as needed and stable ID uniqueness. Preserve data during schema migration.
+**Исправление:** условие владельца проверять атомарно в самом UPDATE/DELETE/SHARE;
+транзакция/версия строки при необходимости, стабильная уникальность ID.
+Миграцию схемы проводить с сохранением записей.
 
-**Verification:** Deterministic check → delete/recreate → mutate interleaving never changes foreign records. Also test rollback and normal concurrency.
+**Проверка:** детерминированное чередование запросов: проверка -> удаление/создание ->
+мутация; чужая запись не изменяется. Проверить rollback и параллельный штатный
+сценарий.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/stalker/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/stalker/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/stalker/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/stalker/README.md).
 
 <a id="cfg-custom-crypto"></a>
 
-## CFG-CUSTOM-CRYPTO. Algebraic leakage in custom cryptography
+<a id="cfg-custom-crypto-algebraic-leakage-in-custom-cryptography"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-CUSTOM-CRYPTO. Алгебраическая утечка самодельной криптографии
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'encrypt|decrypt|matrix|modulus|nonce' .
 ~~~
 
-Write down input/output relationships and where secrets enter; review preserved algebraic relations with the protocol owner.
+Выписать зависимость вход/выход и где входит секрет; проверить сохраняемые алгебраические отношения с владельцем протокола.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**Reference:** solaris, RuCTF author write-up: a matrix construction preserved mathematical relations tied to a secret. **Search:** Custom RSA/matrix/arithmetic combinations, invariant input/output relations and insufficient randomness.
+**Основание:** solaris, авторский разбор RuCTF: матричная схема сохраняла
+математические зависимости, связанные с секретом.
+**Искать:** авторские комбинации RSA/матриц/арифметики, неизменяемые
+соотношения между входом и выходом, недостаточная случайность.
 
-**Fix:** First identify the functional contract and mathematical leak. For ordinary encryption/authentication use standard library constructions with proper nonces and versioned formats. A cryptographic challenge may need an algorithm-specific repair. **Never generalize challenge-specific key-size reductions into security hardening.**
+**Исправление:** сначала определить контракт и математический источник утечки.
+Для обычного шифрования/аутентификации - стандартная библиотечная конструкция
+с правильным nonce и версией формата; у крипто-задачи это может потребовать
+специального исправления алгоритма. **Не переносить уменьшение размера ключа
+из challenge-specific решения в общий hardening.**
 
-**Verification:** Normal client behavior and old data remain intact while the identified invariant disappears.
+**Проверка:** неизменённая функция для штатного клиента, старые данные и отсутствие
+найденного инварианта.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/solaris/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/solaris/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/solaris/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-finals-2023/blob/a7442769909e08c39716cb18d3d1c3a99324bbf8/writeups/solaris/README.md).
 
 <a id="cfg-shared-backend-key"></a>
 
-## CFG-SHARED-BACKEND-KEY. One credential spans all child environments
+<a id="cfg-shared-backend-key-one-credential-spans-all-child-environments"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-SHARED-BACKEND-KEY. Один служебный credential для всех дочерних окружений
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'API_KEY|apikey|credential|environment|token' .
 ~~~
 
-Trace shared-key distribution and backend resource/audience validation.
+Проследить выдачу общего ключа в дочерние окружения и проверку его resource/audience на backend.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ENOWARS / replme, author write-up.** Compromising one child backend exposed a key trusted by the others.
+**ENOWARS / replme, автор.** Компрометация одного дочернего backend раскрывала
+общий ключ доверия к другим.
 
-**Fix:** Least privilege and credentials scoped to individual resources; do not rely solely on internal addresses.
+**Исправление:** минимальные полномочия и привязка credential к конкретному ресурсу;
+не полагаться только на внутренний адрес.
 
-**Verification:** Environment A's credential never authorizes actions in B.
+**Проверка:** credential окружения A
+не авторизует действие в B.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [source/write-up 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [source/write-up 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [source/write-up 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [source/write-up 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [source/write-up 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [исходник/разбор 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [исходник/разбор 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [исходник/разбор 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [исходник/разбор 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [исходник/разбор 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
 
-**Reference:** [primary source](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex).
+**Основание:** [первичный материал](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex).
 
 <a id="cfg-windows-names"></a>
 
-## CFG-WINDOWS-NAMES. Filenames have different Windows meanings
+<a id="cfg-windows-names-filenames-have-different-windows-meanings"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-WINDOWS-NAMES. Имя файла имеет иной смысл в Windows
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'filename|basename|glob|FindFirstFile|ToLower' .
 ~~~
 
-Compare validated/database names with actual Windows lookup: case, wildcard, trailing dots/spaces and alternate streams.
+Сравнить имя в проверке/БД с фактическим Windows lookup: case, wildcard, trailing dot/space и streams.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ICC / MaScroll, author write-up.** Database/filesystem names disagreed on case and allowed characters.
+**ICC / MaScroll, автор.** Имена в БД и файловой системе расходились по
+регистру и допустимым символам.
 
-**Fix:** Server-generated storage IDs, one policy for the actual operating system and separate ownership checks.
+**Исправление:** серверные storage ID, единая политика имён для фактической ОС,
+проверка владельца.
 
-**Verification:** Case, wildcards/special characters and separators; old files stay accessible.
+**Проверка:** регистр, wildcard/служебные символы, разделители;
+старые файлы доступны.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
 
-**Reference:** [primary source](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
+**Основание:** [первичный материал](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/MaScroll/README.md).
 
 <a id="cfg-proxy-redirect"></a>
 
-## CFG-PROXY-REDIRECT. Reverse proxies follow redirects into trusted services
+<a id="cfg-proxy-redirect-reverse-proxies-follow-redirects-into-trusted-services"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-PROXY-REDIRECT. Reverse proxy следует redirect внутрь доверенного сервиса
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'proxy_pass|redirect|Location|logout|internal' .
 ~~~
 
-Trace redirects in internal HTTP clients and repeated destination checks; internal locations alone do not authenticate backend access.
+Проследить redirect во внутреннем HTTP-клиенте и повторную проверку назначения; internal location сам по себе не auth backend.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ICC / NorthernFiles, author write-up.** An open redirect combined with proxy configuration exposed an internal endpoint through a chain.
+**ICC / NorthernFiles, автор.** Open redirect вместе с конфигурацией proxy
+делал внутренний endpoint доступным по цепочке.
 
-**Fix:** Safe redirects and an explicit proxy contract; internal token issuers must independently authorize requests.
+**Исправление:** безопасный redirect и явный контракт proxy; внутренний выдающий токены
+endpoint сам проверяет полномочия.
 
-**Verification:** Internal/external redirects and normal logout.
+**Проверка:** внешние/внутренние redirect и
+штатный logout.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
 
-**Reference:** [primary source](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
+**Основание:** [первичный материал](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
 
 <a id="cfg-protocol-key"></a>
 
-## CFG-PROTOCOL-KEY. Degenerate values in cryptographic protocols
+<a id="cfg-protocol-key-degenerate-values-in-cryptographic-protocols"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-PROTOCOL-KEY. Вырожденное значение в криптопротоколе
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'public_key|pubkey|group|identity|point' .
 ~~~
 
-Validate decoding, group membership and rejection of degenerate elements according to the actual protocol.
+Проверить декодирование и принадлежность ключа допустимой группе, запрет вырожденных элементов по конкретному протоколу.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ICC / NorthernFiles, author write-up.** Type-valid input reduced key agreement to a trivial value.
+**ICC / NorthernFiles, автор.** Допустимый по типу вход приводил согласование
+ключа к тривиальному значению.
 
-**Fix:** Protocol-specific group-element/degenerate-state validation; use a reviewed implementation where compatible.
+**Исправление:** протокольная проверка элементов группы и вырожденных состояний;
+использовать проверенную реализацию, где совместимо.
 
-**Verification:** Neutral/invalid elements, negative cases and client interoperability.
+**Проверка:** neutral/invalid elements, отрицательные сценарии и interop с клиентом.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
 
-**Reference:** [primary source](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
+**Основание:** [первичный материал](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/NorthernFiles/README.md).
 
 <a id="cfg-aggregate-key"></a>
 
-## CFG-AGGREGATE-KEY. Incorrect public-key aggregation
+<a id="cfg-aggregate-key-incorrect-public-key-aggregation"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-AGGREGATE-KEY. Некорректная агрегация публичных ключей
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'aggregate|coefficient|pubkey|subset' .
 ~~~
 
-Compare coefficients and proof-of-possession with the chosen scheme; bound set-validation cost.
+Сверить вычисление коэффициентов и proof-of-possession с выбранной схемой; оценить стоимость проверки наборов.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**ICC / UberPendragon, author write-up.** Linear coefficients failed to provide expected rogue-key protection.
+**ICC / UberPendragon, автор.** Линейная функция коэффициентов не давала
+ожидаемой защиты от rogue keys.
 
-**Fix:** A reviewed aggregation scheme; where clients cannot change, justified protocol-specific rejection of degenerate sets with bounded cost.
+**Исправление:** проверенная схема агрегации; при неизменяемом клиенте - обоснованная
+проверка вырожденных наборов по конкретному протоколу с ограниченной стоимостью.
 
-**Verification:** Ordinary groups, duplicate keys, degenerate aggregates and load.
+**Проверка:** обычные группы, повторяющиеся ключи, вырожденный aggregate и нагрузка.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/UberPendragon/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/UberPendragon/README.md).
 
-**Reference:** [primary source](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/UberPendragon/README.md).
+**Основание:** [первичный материал](https://github.com/CybersecNatLab/ICC2023-AD-CTF/blob/8ffa184ff2ce8f648258ed3c02ee2270e8e1c56c/sources/UberPendragon/README.md).
 
 <a id="cfg-k8s-host"></a>
 
-## CFG-K8S-HOST. Container shares host namespaces
+<a id="cfg-k8s-host-container-shares-host-namespaces"></a>
 
-**Search:** scanner rule CFG-K8S-HOST. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-K8S-HOST` for details. Regex: hostPID/hostIPC/hostNetwork:true and Compose pid/ipc/network_mode:host. No admission-policy or running-pod analysis.
+## CFG-K8S-HOST. Контейнер разделяет host namespace
 
-**Vulnerable example:** Host-namespace access broadens the impact of workload compromise.
+**Поиск:** скрипт, правило CFG-K8S-HOST. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-K8S-HOST. Regex: hostPID/hostIPC/hostNetwork:true, Compose pid/ipc/network_mode:host. Не анализирует admission policy или фактический pod.
+
+**Уязвимый вариант:** Доступ к namespaces хоста расширяет последствия компрометации workload.
 
 ~~~config
 hostPID: true
@@ -1144,7 +1344,7 @@ hostIPC: true
 hostNetwork: true
 ~~~
 
-**Fix:** Disable unnecessary host namespaces; implement required connectivity within approved competition topology and verify probes/ports.
+**Исправление:** Отключить ненужные host namespaces; требуемую связь реализовать в разрешённой topology игры и проверить probes/порты.
 
 ~~~config
 hostPID: false
@@ -1152,17 +1352,19 @@ hostIPC: false
 hostNetwork: false
 ~~~
 
-**Verification:** Service/checker works without host process/IPC visibility or unintended sockets.
+**Проверка:** Сервис и checker доступны; workload не видит процессы/IPC хоста и не получает неожиданные host-сокеты.
 
-Primary documentation: [reference 1](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+Первичная документация: [документация 1](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
 
 <a id="cfg-unconfined"></a>
 
-## CFG-UNCONFINED. seccomp/AppArmor profile disabled
+<a id="cfg-unconfined-seccompapparmor-profile-disabled"></a>
 
-**Search:** scanner rule CFG-UNCONFINED. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-UNCONFINED` for details. Regex: seccomp/apparmor=unconfined or :unconfined and Kubernetes type:Unconfined. Unrelated YAML type keys may match.
+## CFG-UNCONFINED. Отключён профиль seccomp/AppArmor
 
-**Vulnerable example:** Unconfined removes a layer of syscall/access restrictions.
+**Поиск:** скрипт, правило CFG-UNCONFINED. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-UNCONFINED. Regex: seccomp/apparmor=unconfined или :unconfined; Kubernetes type:Unconfined. Чужой YAML ключ type может дать ложный сигнал.
+
+**Уязвимый вариант:** Unconfined снимает слой ограничения системных вызовов/доступов контейнера.
 
 ~~~config
 security_opt:
@@ -1170,7 +1372,7 @@ security_opt:
   - apparmor:unconfined
 ~~~
 
-**Fix:** Restore the default or minimum compatible profile with narrow exceptions.
+**Исправление:** Вернуть стандартный или минимальный совместимый профиль; нужные исключения задавать узко.
 
 ~~~config
 security_opt:
@@ -1178,89 +1380,97 @@ security_opt:
 # Keep the runtime default seccomp/AppArmor profiles.
 ~~~
 
-**Verification:** Normal operations/checker work and the effective container applies the profile.
+**Проверка:** Основные операции и checker работают; фактический контейнер применяет выбранный профиль.
 
-Primary documentation: [reference 1](https://docs.docker.com/engine/security/seccomp/).
+Первичная документация: [документация 1](https://docs.docker.com/engine/security/seccomp/).
 
 <a id="cfg-priv-escalation"></a>
 
-## CFG-PRIV-ESCALATION. Process privilege escalation allowed
+<a id="cfg-priv-escalation-process-privilege-escalation-allowed"></a>
 
-**Search:** scanner rule CFG-PRIV-ESCALATION. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-PRIV-ESCALATION` for details. Regex: explicit allowPrivilegeEscalation:true. Review missing fields, defaults and interactions with privileged/CAP_SYS_ADMIN.
+## CFG-PRIV-ESCALATION. Разрешено повышение привилегий процесса
 
-**Vulnerable example:** Permitted privilege escalation preserves setuid/file-capability paths.
+**Поиск:** скрипт, правило CFG-PRIV-ESCALATION. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-PRIV-ESCALATION. Regex: явное allowPrivilegeEscalation:true. Отсутствие поля, defaults и взаимодействие с privileged/CAP_SYS_ADMIN вручную.
+
+**Уязвимый вариант:** Разрешение privilege escalation оставляет пути через setuid/file capabilities.
 
 ~~~config
 allowPrivilegeEscalation: true
 ~~~
 
-**Fix:** Disable allowPrivilegeEscalation and remove privileged/CAP_SYS_ADMIN and unnecessary capabilities.
+**Исправление:** Выключить allowPrivilegeEscalation, убрать privileged/CAP_SYS_ADMIN и лишние capabilities; проверить реально необходимые операции.
 
 ~~~config
 allowPrivilegeEscalation: false
 ~~~
 
-**Verification:** Required operations work and effective securityContext matches the manifest.
+**Проверка:** Нужные операции работают с ограничениями; runtime securityContext соответствует manifest.
 
-Primary documentation: [reference 1](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/).
+Первичная документация: [документация 1](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/).
 
 <a id="cfg-actuator"></a>
 
-## CFG-ACTUATOR. Spring Actuator exposes every endpoint
+<a id="cfg-actuator-spring-actuator-exposes-every-endpoint"></a>
 
-**Search:** scanner rule CFG-ACTUATOR. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-ACTUATOR` for details. Regex: flat property or MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE with *. Inspect nested YAML and active profiles using endpoints/exposure/include.
+## CFG-ACTUATOR. Spring Actuator публикует все endpoints
 
-**Vulnerable example:** Broad management-endpoint exposure can disclose runtime/configuration or grant control.
+**Поиск:** скрипт, правило CFG-ACTUATOR. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-ACTUATOR. Regex: плоское свойство или environment MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE с *. Вложенный YAML и активные profiles искать вручную по endpoints/exposure/include.
+
+**Уязвимый вариант:** Широкая публикация management endpoints может раскрыть runtime/config или предоставить управление.
 
 ~~~config
 management.endpoints.web.exposure.include=*
 ~~~
 
-**Fix:** Expose only necessary endpoints and restrict management access; inspect health details/custom SecurityFilterChain separately.
+**Исправление:** Оставить необходимые endpoints и ограничить доступ management plane; health details и пользовательский SecurityFilterChain проверить отдельно.
 
 ~~~config
 management.endpoints.web.exposure.include=health
 ~~~
 
-**Verification:** Health/checker works; env, heapdump, loggers, shutdown and unnecessary endpoints require approved admin access.
+**Проверка:** Checker/health работает; env, heapdump, loggers, shutdown и другие ненужные endpoints недоступны без разрешённого admin-доступа.
 
-Primary documentation: [reference 1](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html).
+Первичная документация: [документация 1](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html).
 
 <a id="cfg-h2-console"></a>
 
-## CFG-H2-CONSOLE. H2 web console enabled
+<a id="cfg-h2-console-h2-web-console-enabled"></a>
 
-**Search:** scanner rule CFG-H2-CONSOLE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-H2-CONSOLE` for details. Regex: spring.h2.console.enabled/SPRING_H2_CONSOLE_ENABLED=true. Inspect nested YAML, aliases and active profiles.
+## CFG-H2-CONSOLE. Веб-консоль H2 включена
 
-**Vulnerable example:** A database console is a separate administrative surface with its own authentication and JDBC input.
+**Поиск:** скрипт, правило CFG-H2-CONSOLE. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-H2-CONSOLE. Regex: spring.h2.console.enabled/SPRING_H2_CONSOLE_ENABLED=true. Вложенный YAML, aliases и разные profiles вручную.
+
+**Уязвимый вариант:** Консоль базы является отдельной административной поверхностью с собственным auth и JDBC-вводом.
 
 ~~~config
 spring.h2.console.enabled=true
 ~~~
 
-**Fix:** Disable in the runtime profile or provide protected local admin access; never remove application-wide auth/CSRF for it.
+**Исправление:** Отключить в runtime profile или выделить защищённый локальный admin-доступ; не отключать auth/CSRF всей программы ради консоли.
 
 ~~~config
 spring.h2.console.enabled=false
 ~~~
 
-**Verification:** Database operations work; console is not exposed to the game network.
+**Проверка:** Приложение работает с БД, endpoint консоли не доступен из игровой сети.
 
-Primary documentation: [reference 1](https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.h2-web-console).
+Первичная документация: [документация 1](https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.h2-web-console).
 
 <a id="cfg-tls-upstream"></a>
 
-## CFG-TLS-UPSTREAM. Proxy does not verify upstream TLS
+<a id="cfg-tls-upstream-proxy-does-not-verify-upstream-tls"></a>
 
-**Search:** scanner rule CFG-TLS-UPSTREAM. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-TLS-UPSTREAM` for details. Regex: proxy_ssl_verify/grpc_ssl_verify off. Missing directives, inheritance and effective values require complete nginx config review.
+## CFG-TLS-UPSTREAM. Proxy не проверяет TLS upstream
 
-**Vulnerable example:** Upstream HTTPS without certificate verification does not identify the intended backend.
+**Поиск:** скрипт, правило CFG-TLS-UPSTREAM. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-TLS-UPSTREAM. Regex: proxy_ssl_verify/grpc_ssl_verify off. Отсутствие директивы, inheritance и эффективные значения требуют просмотра полного nginx config.
+
+**Уязвимый вариант:** HTTPS до upstream без проверки сертификата не подтверждает, что это нужный backend.
 
 ~~~config
 proxy_ssl_verify off;
 ~~~
 
-**Fix:** Enable verification, trusted CA and correct name/SNI; validate chain/intermediate depth for the actual upstream.
+**Исправление:** Включить verify, доверенный CA и корректное имя/SNI; проверить цепочку и число промежуточных CA для своего upstream.
 
 ~~~config
 proxy_ssl_verify on;
@@ -1269,189 +1479,215 @@ proxy_ssl_server_name on;
 proxy_ssl_name notes.internal;
 ~~~
 
-**Verification:** Correct backend works; wrong certificate/host fails without HTTP fallback.
+**Проверка:** Правильный backend доступен, чужой сертификат/hostname отвергается без HTTP fallback.
 
-Primary documentation: [reference 1](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ssl_verify).
+Первичная документация: [документация 1](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ssl_verify).
 
 <a id="cfg-ssh-empty-password"></a>
 
-## CFG-SSH-EMPTY-PASSWORD. SSHD permits empty passwords
+<a id="cfg-ssh-empty-password-sshd-permits-empty-passwords"></a>
 
-**Search:** scanner rule CFG-SSH-EMPTY-PASSWORD. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-SSH-EMPTY-PASSWORD` for details. Regex: PermitEmptyPasswords yes. Recognizes sshd_config; include files with arbitrary names require explicit review.
+## CFG-SSH-EMPTY-PASSWORD. SSHD допускает пустой пароль
 
-**Vulnerable example:** When password authentication is available, an empty-password account can permit host access.
+**Поиск:** скрипт, правило CFG-SSH-EMPTY-PASSWORD. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-SSH-EMPTY-PASSWORD. Regex: PermitEmptyPasswords yes. Стандартное имя sshd_config поддержано; включаемые файлы произвольного имени перед сканом нужно явно учитывать вручную.
+
+**Уязвимый вариант:** При доступной password authentication аккаунт с пустым паролем может стать входом на хост.
 
 ~~~config
 PermitEmptyPasswords yes
 ~~~
 
-**Fix:** Disallow empty passwords; review Match/PAM/accounts while retaining a working administration channel before applying changes.
+**Исправление:** Запретить пустые пароли, проверить Match-блоки/PAM и аккаунты; до применения сохранить действующий канал доступа.
 
 ~~~config
 PermitEmptyPasswords no
 ~~~
 
-**Verification:** Approved login works; empty passwords fail in every applicable Match context.
+**Проверка:** Разрешённый способ входа работает; пустой пароль не принимается в каждом применимом Match-контексте.
 
-Primary documentation: [reference 1](https://man.openbsd.org/sshd_config#PermitEmptyPasswords).
+Первичная документация: [документация 1](https://man.openbsd.org/sshd_config#PermitEmptyPasswords).
 
 <a id="cfg-sudo-all"></a>
 
-## CFG-SUDO-ALL. Unrestricted passwordless sudo
+<a id="cfg-sudo-all-unrestricted-passwordless-sudo"></a>
 
-**Search:** scanner rule CFG-SUDO-ALL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain CFG-SUDO-ALL` for details. Regex: NOPASSWD:ALL. Review aliases, includes, wildcard argv and dangerous allowed binaries; recognizes sudoers.
+## CFG-SUDO-ALL. Неограниченный sudo без пароля
 
-**Vulnerable example:** NOPASSWD:ALL turns runtime-user code execution into access to every permitted Runas target.
+**Поиск:** скрипт, правило CFG-SUDO-ALL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain CFG-SUDO-ALL. Regex: NOPASSWD:ALL. Aliases, include-файлы, wildcard argv и опасные разрешённые бинарники требуют ручного просмотра; файл sudoers распознаётся.
+
+**Уязвимый вариант:** NOPASSWD:ALL превращает выполнение кода runtime пользователя в доступ ко всем разрешённым Runas целям.
 
 ~~~config
 app ALL=(ALL:ALL) NOPASSWD: ALL
 ~~~
 
-**Fix:** Remove runtime sudo; move rare privileged operations into a minimal helper without arbitrary argv, shell or writable dependencies.
+**Исправление:** Убрать sudo у сервисного пользователя; редкие операции вынести в минимальный helper без произвольных argv, shell и редактируемых зависимостей.
 
 ~~~config
 # Runtime user has no sudo grant.
 # Provision required resources before service startup.
 ~~~
 
-**Verification:** Service works without sudo; effective rights contain neither ALL nor shell-escaping commands.
+**Проверка:** Сервис работает без sudo; эффективный список прав runtime не содержит ALL или команды с выходом в shell.
 
-Primary documentation: [reference 1](https://www.sudo.ws/docs/man/sudoers.man/).
+Первичная документация: [документация 1](https://www.sudo.ws/docs/man/sudoers.man/).
 
 <a id="cfg-jwt-key-selection"></a>
 
-## CFG-JWT-KEY-SELECTION. Untrusted kid/jku selects verification keys
+<a id="cfg-jwt-key-selection-untrusted-kidjku-selects-verification-keys"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-JWT-KEY-SELECTION. Недоверенный kid/jku выбирает ключ проверки
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'kid|jku|x5u|jwks|JWK|keyfunc|getKey|IssuerSigningKeyResolver' .
 ~~~
 
-Trace issuer, key-set URLs, local paths and kid lookup. Compare trusted registries against unverified token fields; scope cache keys by issuer and kid.
+Проследить, откуда берутся issuer, URL набора ключей, локальный путь и ключ по kid. Сравнить доверенный registry с полями ещё не проверенного токена; проверить cache key по issuer и kid.
 
-**Vulnerable example:** A token supplies a JWKS URL/key file or another issuer's kid, and the validator trusts the result.
+**Уязвимый вариант:** Токен сам задаёт адрес JWKS/файл ключа или kid другого issuer, а валидатор принимает найденный материал как доверенный.
 
-**Fix:** Pin allowed issuers and their JWKS/keys server-side; kid is only an exact index within that issuer. Restrict algorithms/key types, caching and rotation; do not trust token-supplied jku/x5u.
+**Исправление:** Закрепить допустимый issuer и его JWKS/ключи серверной конфигурацией; kid использовать только как точный индекс внутри этого issuer. Ограничить допустимые алгоритмы, типы ключей, кеш и ротацию. Не доверять встроенному jku/x5u.
 
-**Verification:** Legitimate rotation works; unknown/cross-issuer kid and client URLs cannot change the trust domain. Key-fetch failure never authorizes.
+**Проверка:** Штатная ротация ключа работает; неизвестный kid, kid другого issuer и пользовательский URL не меняют доверенную область. Ошибка загрузки ключей не разрешает вход.
 
-Reference: [primary documentation](https://www.rfc-editor.org/rfc/rfc8725.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [первичная документация/материал](https://www.rfc-editor.org/rfc/rfc8725.html). Описание и рецепт адаптации составлены для этой базы.
 
 <a id="cfg-signed-request"></a>
 
-## CFG-SIGNED-REQUEST. Signatures are not bound to operations or preventable replays
+<a id="cfg-signed-request-signatures-are-not-bound-to-operations-or-preventable-replays"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-SIGNED-REQUEST. Подпись не связана с действием или допускает повтор
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'signature|signed_url|signedUrl|nonce|expires|timestamp|hmac|Content-Digest' .
 ~~~
 
-List exact signed bytes: method, path, query, body, recipient, purpose and lifetime. Compare signer/verifier normalization and atomic one-use nonce handling.
+Выписать точный набор подписываемых байтов: метод, путь, query, body, получатель, назначение, срок. Проверить нормализацию на signer/verifier и атомарность одноразового nonce.
 
-**Vulnerable example:** A read signature authorizes mutation, bodies can be replaced, or a one-use webhook/payment is replayed.
+**Уязвимый вариант:** Верная подпись для чтения принимается при изменении данных, body можно заменить, либо одноразовый webhook/платёж применяют повторно.
 
-**Fix:** Sign a canonical contract binding action/purpose, recipient and required request components; bound expiry/clock skew. Atomically record one-use nonces/idempotency keys with the mutation.
+**Исправление:** Подписывать канонический контракт с action/purpose, получателем и необходимыми компонентами запроса; ограничить срок и clock skew. Для одноразовых операций атомарно фиксировать использованный nonce/idempotency key вместе с изменением.
 
-**Verification:** Method/path/body/recipient changes invalidate signatures. Concurrent replays produce one effect; permitted retries return the agreed result.
+**Проверка:** Изменение метода/пути/body/получателя ломает проверку. Два одновременных повтора дают один эффект; штатные разрешённые retries возвращают согласованный результат.
 
-Reference: [primary documentation](https://www.rfc-editor.org/rfc/rfc9421.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [первичная документация/материал](https://www.rfc-editor.org/rfc/rfc9421.html). Описание и рецепт адаптации составлены для этой базы.
 
 <a id="cfg-rate-limit-identity"></a>
 
-## CFG-RATE-LIMIT-IDENTITY. Senders choose their rate-limit identity
+<a id="cfg-rate-limit-identity-senders-choose-their-rate-limit-identity"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-RATE-LIMIT-IDENTITY. Ключ rate limit выбирает отправитель
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'rate.?limit|throttle|X-Forwarded-For|X-Real-IP|req\.ip|remote_addr|client_ip' .
 ~~~
 
-Compare limit keys with the actual trusted-proxy boundary. Test case/Unicode names, route aliases, multiple workers, expiry and backend failure.
+Сопоставить ключ лимита с реальной границей доверия proxy. Проверить регистр/Unicode имени, маршрут-алиасы, отдельные воркеры, истечение счётчика и отказ backend.
 
-**Vulnerable example:** Limits use arbitrary headers, one account spelling or worker-local memory; changing representation resets the budget.
+**Уязвимый вариант:** Лимит привязан к произвольному заголовку, одному из вариантов имени аккаунта или локальной памяти каждого worker; смена представления сбрасывает бюджет.
 
-**Fix:** Normalize identity consistently with authentication; trust proxy headers only from approved hops. Use atomic shared budgets for intended actors/operations while preserving legitimate shared-IP access.
+**Исправление:** Нормализовать идентификатор одинаково с auth; принимать proxy headers только от доверенных hop. Применять атомарный общий бюджет по нужным субъектам/операциям, сохранив доступность легитимных общих IP.
 
-**Verification:** Header/identity-form changes do not create a fresh budget; parallel workers honor limits and permitted checker traffic works.
+**Проверка:** Смена заголовка и формы идентификатора не создаёт новый бюджет; параллельные workers соблюдают лимит; допустимый checker traffic проходит.
 
-Reference: [primary documentation](https://expressjs.com/en/guide/behind-proxies.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [первичная документация/материал](https://expressjs.com/en/guide/behind-proxies.html). Описание и рецепт адаптации составлены для этой базы.
 
 <a id="cfg-token-revocation"></a>
 
-## CFG-TOKEN-REVOCATION. Password or role changes fail to revoke access
+<a id="cfg-token-revocation-password-or-role-changes-fail-to-revoke-access"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-TOKEN-REVOCATION. Смена пароля или роли не отзывает полномочия
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'logout|revoke|revocation|token_version|session_version|password_changed|security_stamp|refresh_token' .
 ~~~
 
-Trace login, refresh, logout, password changes, account deletion and role updates. Determine when APIs reload privileges, validate session/token versions and invalidate caches.
+Проследить login, refresh, logout, смену пароля, удаление аккаунта и изменение роли. Проверить, когда API перечитывает полномочия, как проверяется session/token version и какие кеши остаются.
 
-**Vulnerable example:** A deleted administrator retains an old JWT/session, or a revoked refresh token restores access.
+**Уязвимый вариант:** Удалённый администратор продолжает пользоваться старым JWT/session; отозванный refresh восстанавливает доступ.
 
-**Fix:** Contractual expiry/revocation via session versions, denylists or short-lived access tokens with verified refresh. Rotate refresh tokens atomically and invalidate related caches.
+**Исправление:** Определить срок действия и отзыв по контракту: session version/denylist/короткие access tokens с проверяемым refresh. Ротацию refresh выполнять атомарно, инвалидировать связанные кеши.
 
-**Verification:** After the chosen revocation event, old access/refresh tokens fail within the promised interval on every worker; legitimate re-login works.
+**Проверка:** После выбранного события отзыва старые access/refresh перестают давать доступ в обещанный срок на всех workers; штатный повтор входа работает.
 
-Reference: [primary documentation](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [первичная документация/материал](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html). Описание и рецепт адаптации составлены для этой базы.
 
 <a id="cfg-fail-open"></a>
 
-## CFG-FAIL-OPEN. Verification errors become permission
+<a id="cfg-fail-open-verification-errors-become-permission"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-FAIL-OPEN. Ошибка проверки превращается в разрешение
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'catch|except|finally|recover|fallback|default.*allow|on_error|unwrap_or|Result' .
 ~~~
 
-Trace every auth/signature/ACL exception, timeout, nil/None/null and cleanup branch. Inspect catch/finally, next middleware and defaults.
+Для auth/signature/ACL-проверки проследить все исключения, timeout, nil/None/null и ветви cleanup. Проверить catch/finally, вызываемый следующий middleware и значение по умолчанию.
 
-**Vulnerable example:** Database/validator failure returns allow/default principal, a handler continues after 401, or finally overrides denial.
+**Уязвимый вариант:** Ошибка БД или валидатора возвращает allow/default principal; handler продолжает работу после записи 401; finally перезаписывает отказ.
 
-**Fix:** Deny by default before side effects. Distinguish authorization denial from temporary unavailability and terminate the processing chain; log errors without secrets.
+**Исправление:** По умолчанию отказывать до выполнения побочного эффекта. Различать отказ авторизации и временную недоступность, завершать цепочку обработки; ошибки логировать без секретов.
 
-**Verification:** Synthetic backend errors/timeouts, wrong types and nil results neither expose data nor mutate state; normal checks pass.
+**Проверка:** Искусственная ошибка/timeout auth backend, неверный тип и nil результат не дают данных и не изменяют состояние; штатная проверка проходит.
 
-Reference: [primary documentation](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [первичная документация/материал](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html). Описание и рецепт адаптации составлены для этой базы.
 
 <a id="cfg-ldap-filter"></a>
 
-## CFG-LDAP-FILTER. LDAP filters or DNs built as strings
+<a id="cfg-ldap-filter-ldap-filters-or-dns-built-as-strings"></a>
 
-**Search:** manual review; no separate scanner rule.
+## CFG-LDAP-FILTER. Строковая сборка LDAP filter или DN
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'ldap_search|ldap\.search|search_s|SearchFilter|DirContext|LdapName|Filter\.create|escape_filter' .
 ~~~
 
-Trace search filters separately from DNs: their grammars differ. Check bind/search, wildcard handling, empty passwords and multiple-match selection.
+Проследить сборку search filter отдельно от DN: это разные грамматики. Проверить bind/search, wildcard, пустой пароль и выбор записи при нескольких совпадениях.
 
-**Vulnerable example:** Usernames become LDAP syntax; broadened filters select another record or several records with the first treated as the user.
+**Уязвимый вариант:** Имя пользователя подставляют в LDAP expression как синтаксис; расширенный фильтр выбирает другую запись или несколько записей, первая из которых считается пользователем.
 
-**Fix:** Builders/parameter APIs or escaping specifically for filter values; construct DNs with a DN builder. Require exactly the intended match and a valid bind; search is not authentication.
+**Исправление:** Использовать builder/parameter API либо escape именно для filter value; DN строить штатным DN builder. Требовать ровно ожидаемое совпадение и корректный bind, не считать поиск аутентификацией.
 
-**Verification:** Special characters remain values; zero/multiple matches and empty credentials cannot authenticate; normal users work.
+**Проверка:** Специальные символы остаются частью значения; ноль/много совпадений и пустые credentials не дают вход; штатный пользователь проходит.
 
-Reference: [primary documentation](https://www.rfc-editor.org/rfc/rfc4515.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [первичная документация/материал](https://www.rfc-editor.org/rfc/rfc4515.html). Описание и рецепт адаптации составлены для этой базы.
 
 <a id="cfg-ci-trust"></a>
 
-## CFG-CI-TRUST. Untrusted data and code cross CI trust boundaries
+<a id="cfg-ci-trust-untrusted-data-and-code-cross-ci-trust-boundaries"></a>
 
-**Search:** manual review; no separate scanner rule. CFG-CI-TRUST is a catalog ID, not an automatic signal. Locate workflows and composite actions:
+## CFG-CI-TRUST. Недоверенные данные и код пересекают границу CI
+
+**Поиск:** вручную; отдельного правила сканера нет. CFG-CI-TRUST - идентификатор
+раздела, а не автоматического сигнала. Найти workflows и composite actions:
 
 ~~~bash
 rg -n --hidden -g '*.yml' -g '*.yaml' -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'pull_request_target|workflow_run|permissions:|secrets\.|allow-unsafe-pr-checkout|checkout@|download-artifact@|head\.sha|git fetch|gh pr checkout|run:|script:|uses: \./' .
 rg -n --hidden -g '*.yml' -g '*.yaml' -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e '\$\{\{[^}]*github\.(event|head_ref)' .
 ~~~
 
-Read complete jobs and called actions/reusable workflows. Trace event/ref/artifact control → conversion into shell/JavaScript, dependencies or executables → effective permissions, secrets, environment and runner. An event name alone proves no flaw. Multiline expressions, indirect outputs and composite-action inputs need review even without search matches.
+Открыть весь найденный job и вызываемые actions/reusable workflows. Проследить
+последовательно: кто задаёт event field/ref/artifact -> где значение становится
+shell/JS-кодом, зависимостью или исполняемым файлом -> какие permissions, secrets,
+окружение и runner получает этот шаг. Само имя события не доказывает дефект.
+Многострочные выражения, косвенные outputs и входы composite actions требуют
+просмотра даже без совпадения команды поиска.
 
-**Vulnerable example:** The first boundary is interpolating event data directly into run/script source. Quoting an expression does not protect it: interpolation occurs before shell parsing.
+**Уязвимый вариант:** первая граница - подстановка данных события прямо в
+исходник `run`/`script`. Кавычки вокруг expression не защищают: выражение
+подставляется до разбора shell.
 
 ~~~yaml
 - name: Show title
@@ -1459,9 +1695,12 @@ Read complete jobs and called actions/reusable workflows. Trace event/ref/artifa
   run: printf '%s\n' "${{ github.event.pull_request.title }}"
 ~~~
 
-A real workflow_run.head_branch case is documented in [GHSL-2025-099](https://securitylab.github.com/advisories/GHSL-2025-099_cross-platform-actions_action/). It affected a workflow in the action repository, not necessarily every project using the action.
+Реальный случай с `workflow_run.head_branch` разобран в
+[GHSL-2025-099](https://securitylab.github.com/advisories/GHSL-2025-099_cross-platform-actions_action/).
+Он относился к workflow репозитория action; это не утверждение об уязвимости
+каждого проекта, использующего этот action.
 
-The second boundary is executing PR code in a privileged job:
+Вторая граница - исполнение PR-кода в привилегированном job:
 
 ~~~yaml
 on: pull_request_target
@@ -1480,11 +1719,27 @@ jobs:
           SERVICE_TOKEN: ${{ secrets.SERVICE_TOKEN }}
 ~~~
 
-PRs can change tests, Makefiles, install hooks and local actions. An analogous workflow_run error downloads a prior PR artifact and executes its script. Correct run IDs and successful status establish provenance, not content trust. [GitHub pull_request_target/workflow_run trust](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target). A real PR → privileged workflow → PR-code execution chain appears in [Gradio GHSL-2024-150 through GHSL-2024-157](https://securitylab.github.com/advisories/GHSL-2024-150_GHSL-2024-157_Gradio/).
+PR может менять не только тест, но и Makefile, install hook или локальный action.
+У `workflow_run` аналогичная ошибка - скачать artifact предыдущего PR-run и
+выполнить содержащийся в нём скрипт. Верный run ID и статус success подтверждают
+происхождение результата, но не доверенность его содержимого.
+[GitHub: доверие к pull_request_target и workflow_run](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target).
+Реальная цепочка PR -> привилегированный workflow -> выполнение PR-кода описана
+в [исследовании Gradio GHSL-2024-150 - GHSL-2024-157](https://securitylab.github.com/advisories/GHSL-2024-150_GHSL-2024-157_Gradio/).
 
-checkout v7 blocks unsafe fork-PR checkout by default for pull_request_target and workflow_run whose workflow_run.event matches pull_request*; the example explicitly disables protection. It does not protect every workflow_run. Protection was backported to supported major versions, but pinned old SHAs do not update themselves. Check the exact commit/backport; git fetch, third-party actions and artifacts bypass this checkout-specific boundary. [checkout change](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/). Also inspect effective repository event policy; workflow YAML alone cannot establish whether it applies. [GitHub event policy](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target#default-policy-for-pull_request_target).
+В `checkout` v7 опасный checkout fork PR при `pull_request_target` и при
+`workflow_run`, чей `workflow_run.event` относится к `pull_request*`, по умолчанию
+блокируется; пример выше явно отключает защиту. Это не защита любого
+`workflow_run`. Защита перенесена в поддерживаемые major-ветки,
+но старый закреплённый SHA сам не обновляется. Проверить фактический commit и
+backport; получение кода через `git fetch`, сторонний action или artifact эта
+проверка не заменяет.
+[Изменение checkout](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/).
+Дополнительно проверить фактически применимую event policy репозитория:
+её наличие и режим нельзя вывести только из workflow YAML.
+[GitHub: event policy](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target#default-policy-for-pull_request_target).
 
-**Fix:** Keep event data separate from executable source:
+**Исправление:** для значения события сохранить разделение данных и кода:
 
 ~~~yaml
 - name: Show title
@@ -1494,9 +1749,12 @@ checkout v7 blocks unsafe fork-PR checkout by default for pull_request_target an
   run: printf '%s\n' "$PR_TITLE"
 ~~~
 
-The printf format is fixed and the value is one argument. Later eval, bash -c or JavaScript construction breaks the boundary again. Passing data through with is safe only if the receiving action handles it safely. [GitHub script-injection guidance](https://docs.github.com/en/actions/reference/security/secure-use#good-practices-for-mitigating-script-injection-attacks).
+Формат `printf` фиксирован, значение передаётся одним аргументом. Последующий
+`eval`, `bash -c` или конструирование JS снова нарушат границу. Передача через
+`with` безопасна лишь при соответствующем поведении принимающего action.
+[GitHub: защита от script injection](https://docs.github.com/en/actions/reference/security/secure-use#good-practices-for-mitigating-script-injection-attacks).
 
-Run ordinary PR checks in an unprivileged, secret-free workflow:
+Для обычных проверок PR использовать непривилегированный workflow без secrets:
 
 ~~~yaml
 on: pull_request
@@ -1512,72 +1770,91 @@ jobs:
       - run: make test
 ~~~
 
-persist-credentials:false alone does not fix privileged PR-code execution. Separate trusted jobs for comments, labels or report publication: accept bounded schema-validated JSON/text, verify repo/run/head SHA/PR destination, and never execute/import artifacts. Download data outside the trusted workspace. Private-registry/API tests need a separate design; arbitrary PR code must not receive their secrets. pull_request_target limited to labels/comments can be justified. [GitHub Security Lab stage separation](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/).
+`persist-credentials: false` отдельно не исправляет выполнение PR-кода с
+привилегиями. Если нужны комментарии, метки или публикация отчёта, отделить
+доверенный job: он принимает ограниченный JSON/text, проверяет размер, схему,
+repo/run/head SHA и назначение PR, не исполняет и не импортирует artifact.
+Скачивать данные отдельно от доверенного workspace. Тесты с private registry/API
+потребуют отдельного дизайна; передавать их секреты произвольному PR нельзя.
+`pull_request_target` только для меток/комментариев может быть обоснован.
+[GitHub Security Lab: разделение стадий](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/).
 
-**Verification:** Statically trace data and minimal effective permissions including repository settings. In an authorized test CI exercise fork PRs, new SHAs after approval, quoted/newline-containing titles as data, foreign run IDs, malformed schemas and oversized artifacts. Preserve normal checks/report publication; PR code receives neither secrets nor a persistent self-hosted runner with internal access. These workflows were not executed during the catalog review; the offline scanner does not determine effective permissions or Actions relationships.
+**Проверка:** статически подтвердить путь данных и минимальные эффективные права
+с учётом настроек репозитория. В разрешённом тестовом CI проверить fork PR,
+новый SHA после approval, название с кавычками/переводами строк как данные,
+чужой run ID, неверную схему и oversized artifact. Штатные проверки и публикация
+отчёта должны сохраниться; PR-код не получает secrets или постоянный self-hosted
+runner с доступом к внутренним ресурсам. Эти workflows в рамках проверки базы
+не запускались; офлайн-сканер не определяет effective permissions и связи Actions.
 
 <a id="cfg-docker-tcp"></a>
 
-## CFG-DOCKER-TCP. Docker daemon listens on every TCP interface
+<a id="cfg-docker-tcp-docker-daemon-listens-on-every-tcp-interface"></a>
 
-**Search:** scanner rule CFG-DOCKER-TCP. Use `--explain CFG-DOCKER-TCP` for the exact detector contract. Regex with lexical exclusions: dockerd followed on the same line by -H/--host tcp://0.0.0.0 or [::]. Does not evaluate TLS flags, JSON daemon configuration, named interfaces or shell expansions; a TLS-protected listener still requires review.
+## CFG-DOCKER-TCP. Docker daemon слушает на всех TCP-интерфейсах
 
-**Vulnerable example:**
+**Поиск:** правило сканера CFG-DOCKER-TCP. Точный контракт детектора: `--explain CFG-DOCKER-TCP`. Regex с лексическими исключениями: dockerd, после которого на той же строке стоят -H/--host tcp://0.0.0.0 или [::]. Не оценивает TLS-флаги, JSON-конфигурацию daemon, именованные интерфейсы и shell-подстановки; listener с TLS тоже требует проверки.
+
+**Уязвимый вариант:**
 
 ~~~shell
 dockerd -H tcp://0.0.0.0:2375
 ~~~
 
-**Fix:** Prefer local Docker access. Required remote management needs authenticated encrypted transport and a deliberately restricted management interface; never publish it as a team UI.
+**Исправление:** Предпочитайте локальный доступ к Docker. Если удалённое управление необходимо, используйте аутентифицированный зашифрованный транспорт и явно ограниченный интерфейс управления; не публикуйте его как командный UI.
 
 ~~~shell
 dockerd -H unix:///var/run/docker.sock
 ~~~
 
-**Verification:** Unapproved LAN clients cannot control Docker; approved administration remains possible without exposing credentials.
+**Проверка:** Несогласованные LAN-клиенты не могут управлять Docker; согласованное администрирование остаётся доступным без раскрытия credentials.
 
-[Primary reference 1](https://docs.docker.com/reference/cli/dockerd/#daemon-socket-option)
+[Первичный источник 1](https://docs.docker.com/reference/cli/dockerd/#daemon-socket-option)
 
 <a id="cfg-floating-image"></a>
 
-## CFG-FLOATING-IMAGE. Explicit latest image tag
+<a id="cfg-floating-image-explicit-latest-image-tag"></a>
 
-**Search:** scanner rule CFG-FLOATING-IMAGE. Use `--explain CFG-FLOATING-IMAGE` for the exact detector contract. Regex with lexical exclusions: Docker FROM or a bare YAML image key using an unquoted image:latest with no digest. Quoted YAML, untagged images, other mutable tags, ARG expansion and resolved architecture need deployment-model audit.
+## CFG-FLOATING-IMAGE. Явный тег образа latest
 
-**Vulnerable example:**
+**Поиск:** правило сканера CFG-FLOATING-IMAGE. Точный контракт детектора: `--explain CFG-FLOATING-IMAGE`. Regex с лексическими исключениями: Docker FROM или обычный YAML-ключ image с незаключённым в кавычки image:latest без digest. YAML в кавычках, образы без тега, другие изменяемые теги, подстановки ARG и фактическая архитектура требуют аудита модели deployment.
+
+**Уязвимый вариант:**
 
 ~~~docker
 FROM example.invalid/app:latest
 ~~~
 
-**Fix:** Record the approved source version and architecture-specific image digest; populate the offline image inventory and verify imported images.
+**Исправление:** Зафиксируйте согласованную версию исходников и digest образа для нужной архитектуры; заполните offline-инвентарь образов и проверьте импортированные образы.
 
 ~~~docker
 FROM example.invalid/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ~~~
 
-**Verification:** Repeated offline starts use the approved bytes and architecture; no implicit pull or latest fallback occurs.
+**Проверка:** Повторные offline-запуски используют согласованные байты и архитектуру; не происходит неявного pull или отката к latest.
 
-[Primary reference 1](https://docs.docker.com/reference/dockerfile/#from)
+[Первичный источник 1](https://docs.docker.com/reference/dockerfile/#from)
 
 <a id="tpl-autoescape-off"></a>
 
-## TPL-AUTOESCAPE-OFF. Template block disables autoescaping
+<a id="tpl-autoescape-off-template-block-disables-autoescaping"></a>
 
-**Search:** scanner rule TPL-AUTOESCAPE-OFF. Use `--explain TPL-AUTOESCAPE-OFF` for the exact detector contract. Regex excluding HTML/Jinja comments: Jinja/Twig autoescape false and Django autoescape off blocks. Does not evaluate template engine defaults, enclosing blocks or whether values are trusted.
+## TPL-AUTOESCAPE-OFF. Блок шаблона отключает автоматическое экранирование
 
-**Vulnerable example:**
+**Поиск:** правило сканера TPL-AUTOESCAPE-OFF. Точный контракт детектора: `--explain TPL-AUTOESCAPE-OFF`. Regex с исключением HTML/Jinja-комментариев: блоки Jinja/Twig autoescape false и Django autoescape off. Не оценивает defaults шаблонизатора, внешние блоки и доверенность значений.
+
+**Уязвимый вариант:**
 
 ~~~template
 {% autoescape false %}{{ message }}{% endautoescape %}
 ~~~
 
-**Fix:** Retain autoescaping for untrusted text; sanitize supported HTML explicitly and review the output context.
+**Исправление:** Сохраняйте автоматическое экранирование недоверенного текста; явно очищайте разрешённый HTML и проверяйте контекст вывода.
 
 ~~~template
 {{ message }}
 ~~~
 
-**Verification:** User tags/attributes remain data and allowed formatting still works.
+**Проверка:** Пользовательские теги и атрибуты остаются данными; разрешённое форматирование продолжает работать.
 
-[Primary reference 1](https://jinja.palletsprojects.com/en/stable/templates/#autoescape-overrides)
+[Первичный источник 1](https://jinja.palletsprojects.com/en/stable/templates/#autoescape-overrides)

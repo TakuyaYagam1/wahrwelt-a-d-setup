@@ -1,0 +1,6 @@
+name: wahrwelt
+
+include:
+  - components/farm/compose.yaml
+  - components/neo/compose.yaml
+  - components/packmate/compose.yaml

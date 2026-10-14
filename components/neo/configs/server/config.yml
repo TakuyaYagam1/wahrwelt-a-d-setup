@@ -1,0 +1,14 @@
+addr: ":5005"
+db_path: "/data/db.db"
+redis_url: "redis://neo-redis:6379/0"
+base_dir: "/data/exploits"
+ping_every: "5s"
+submit_every: "2s"
+metrics:
+  address: "127.0.0.1:3000"
+
+farm:
+  url: "http://farm:5000"
+  password: ""
+
+env: {}

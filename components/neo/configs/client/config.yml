@@ -1,0 +1,6 @@
+host: "neo:5005"
+metrics_host: ""
+exploit_dir: "/work/exploits"
+grpc_auth_key: ""
+use_tls: false
+allow_broadcast_commands: false

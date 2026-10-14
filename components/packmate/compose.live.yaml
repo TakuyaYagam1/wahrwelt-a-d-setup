@@ -1,0 +1,19 @@
+services:
+  packmate:
+    environment:
+      PACKMATE_CAPTURE_MODE: LIVE
+      PACKMATE_INTERFACE_NAME: ${PACKMATE_INTERFACE_NAME:?Задайте PACKMATE_INTERFACE_NAME для режима LIVE}
+      PACKMATE_LOCAL_IP: ${PACKMATE_LOCAL_IP:?Задайте PACKMATE_LOCAL_IP для режима LIVE}
+      SERVER_ADDRESS: ${BIND_ADDRESS:-127.0.0.1}
+      SERVER_PORT: ${PACKMATE_PORT:-65000}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:${PACKMATE_DB_PORT:-65432}/packmate
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+  packmate-db:
+    ports:
+      - "127.0.0.1:${PACKMATE_DB_PORT:-65432}:5432"

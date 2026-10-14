@@ -1,4 +1,4 @@
-"""TLS configuration signals: exact environment values and Go assignments."""
+"""Признаки TLS-конфигурации: точные значения окружения и присваивания Go."""
 import contextlib
 import importlib.util
 import io
@@ -159,8 +159,8 @@ class TlsConfigurationTests(unittest.TestCase):
                 with self.subTest(language=language, source=source):
                     self.assertNotIn("JS-TLS", self.ids(source, language))
         self.assertIn("JS-TLS", self.ids("(process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0')", "javascript"))
-        # This is text matching, not a parser: commented configuration remains
-        # a documented review signal, not a claim about the effective value.
+        # Текстовый поиск отмечает и закомментированную конфигурацию.
+        # Сигнал не подтверждает фактическое значение настройки.
         self.assertIn("JS-TLS", self.ids("# NODE_TLS_REJECT_UNAUTHORIZED=0", "shell"))
 
     def test_file_types_locations_and_documentation(self):

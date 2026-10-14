@@ -1,4 +1,4 @@
-"""HTTP client syntax regressions. No client or target code is executed."""
+"""Синтаксис HTTP-клиентов проверяется без исполнения кода и запросов."""
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -96,8 +96,8 @@ class HttpClientTests(unittest.TestCase):
         self.assertNotIn("PY-URL", self.ids(
             "import httpx\nwith httpx.Client() as client:\n"
             "    url='https://example.invalid'\n    client.stream('GET', url)"))
-        # Scalar facts do not cross a context boundary. The retained review
-        # signal is documented, not a claim that the literal endpoint is unsafe.
+        # Скалярные факты не переходят границу контекста.
+        # Сигнал требует проверки, но не объявляет адрес небезопасным.
         self.assertIn("PY-URL", self.ids(
             "import httpx\nurl='https://example.invalid'\nwith httpx.Client() as client:\n"
             "    client.stream('GET', url)"))

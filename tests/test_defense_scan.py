@@ -1,4 +1,4 @@
-"""Offline scanner tests; no vulnerable fixture is executed."""
+"""Проверки локального сканера без исполнения уязвимых примеров."""
 import contextlib
 import importlib.util
 import io
@@ -116,8 +116,7 @@ class ScannerTests(unittest.TestCase):
                     self.assertNotIn("PY-YAML", self.ids(code))
 
     def test_data_loader_findings_have_stable_locations_and_documentation(self):
-        # Authored after the implementation: verify report metadata on a real
-        # inert file, not just the detector's in-memory ID set.
+        # Проверяем метаданные отчета на настоящем файле, а не только ID в памяти.
         source = ("import numpy as np\nfrom lxml import etree\nimport yaml\n"
                   "np.load(path, allow_pickle=True)\n"
                   "etree.iterparse(stream, resolve_entities=True)\n"
@@ -205,8 +204,8 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("PY-DESERIALIZE", self.ids("import pickle as p\ndef f():\n    p.loads(data)"))
 
     def test_no_mutable_container_propagation_claim(self):
-        # Arbitrary mutation is not modelled; a dict variable is intentionally
-        # outside coverage instead of being treated as a frozen snapshot.
+        # Произвольные изменения не моделируются: переменная словаря
+        # не считается неизменяемым снимком.
         self.assertNotIn("PY-JWT", self.ids("import jwt\noptions = {'verify_signature': False}\noptions['verify_signature'] = True\njwt.decode(token, key, options=options)"))
 
     def test_requests_method_first_and_literal_url(self):
@@ -301,7 +300,7 @@ class ScannerTests(unittest.TestCase):
                             <= {f["rule"] for f in report["findings"]})
 
     def test_fixed_examples_and_contextual_signals(self):
-        # A validated dynamic send_file remains a signal: no taint analysis.
+        # Проверенный динамический send_file остается сигналом без анализа потока данных.
         for rule in self.rules:
             with self.subTest(rule=rule["id"]):
                 ids = self.ids(rule["after"], rule["languages"][0])
@@ -352,7 +351,7 @@ requests.get('https://example.invalid', verify=True)
     def test_go_sum_safe_and_unsafe(self):
         self.assertIn("GO-HASH-SUM", self.ids("h.Sum(data)", "go"))
         self.assertNotIn("GO-HASH-SUM", self.ids("h.Sum(nil)", "go"))
-        # h.Sum(buf[:0]) can be a legitimate optimization; intentionally flagged.
+        # h.Sum(buf[:0]) может быть допустимой оптимизацией, но требует проверки.
         self.assertIn("GO-HASH-SUM", self.ids("h.Sum(buf[:0])", "go"))
 
     def test_secret_key_annotation_and_no_default(self):
@@ -374,7 +373,7 @@ requests.get('https://example.invalid', verify=True)
             with patch.object(socket, "socket", side_effect=AssertionError("network")), \
                  patch.object(socket, "getaddrinfo", side_effect=AssertionError("DNS")), \
                  patch.object(urllib.request, "urlopen", side_effect=AssertionError("HTTP")):
-                # Include rule loading; neither path needs an online service.
+                # Включаем загрузку правил; доступ к сети не нужен.
                 report = scanner.scan(root, scanner.load_rules())
             self.assertEqual(report["exit_code"], 1)
             self.assertFalse(marker.exists())
@@ -544,7 +543,7 @@ requests.get('https://example.invalid', verify=True)
             report = scanner.scan(root, self.rules, exclude=["z/**", "a/**", "z/**"],
                                   max_bytes=2048, max_files=30, max_findings=40)
             scope = report["scope"]
-            self.assertEqual(scope["schema"], "durkahelper.scanner-scope.v2")
+            self.assertEqual(scope["schema"], "wahrwelt.scanner-scope.v2")
             self.assertEqual(scope["path_semantics"], "root-relative-posix.v1")
             self.assertRegex(scope["root"], r"^sha256:[0-9a-f]{64}$")
             self.assertNotIn(str(root), json.dumps(scope))
@@ -580,7 +579,7 @@ requests.get('https://example.invalid', verify=True)
             path.write_text("eval(x)")
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(scanner.main([str(root), "--patches"]), 1)
-            self.assertIn("After example", output.getvalue())
+            self.assertIn("Пример после", output.getvalue())
 
     def test_control_characters_are_escaped(self):
         self.assertNotIn("\x1b", scanner.terminal("name\x1b[31m.py"))

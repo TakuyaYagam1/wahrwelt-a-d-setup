@@ -1,4 +1,4 @@
-"""Independent Go/PHP detector variants. Snippets are inert source text."""
+"""Независимые варианты Go/PHP. Примеры обрабатываются как текст."""
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -71,8 +71,8 @@ class LanguageVariantTests(unittest.TestCase):
     def test_post_implementation_php_array_boundary_and_explicit_shell(self):
         self.assertNotIn("PHP-SHELL", self.ids(
             "\\proc_open( command : [ $executable, $argument ], descriptor_spec: $spec, pipes: $pipes);", "php"))
-        # An argv array avoids an implicit shell but does not establish an
-        # executable allowlist or safe utility options; that review stays manual.
+        # Массив argv исключает неявный shell, но не проверяет допустимость
+        # программы и ее опций. Это требует ручной проверки.
         self.assertIn("PHP-SHELL", self.ids(
             "proc_open(command: ['cmd.exe', '/c', $command], descriptor_spec: $spec, pipes: $pipes);", "php"))
         self.assertIn("PHP-SHELL", self.ids(

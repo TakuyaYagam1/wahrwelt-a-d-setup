@@ -1,0 +1,43 @@
+# Packmate
+
+Packmate показывает сетевые потоки, запросы и ответы, найденные шаблоны и службы. По умолчанию приложение разбирает локальный PCAP в режиме `FILE`; интерфейс доступен через адрес loopback хоста.
+
+## Запуск
+
+Из корня wahrwelt выполните `./control init`, затем запустите:
+
+```sh
+./control pack
+```
+
+Откройте `http://127.0.0.1:${PACKMATE_PORT:-65000}` и войдите с `PACKMATE_USERNAME` и `PACKMATE_PASSWORD` из корневого `.env`. Для анализа замените созданный `local/pcaps/capture.pcap` нужным файлом, затем нажмите `Старт FILE`. Пустой файл, созданный командой `init`, позволяет запустить сервис до добавления PCAP.
+
+Файл и каталог `local/rsa_keys` монтируются в контейнер только для чтения. Ключи RSA нужны только для поддерживаемого исходным проектом TLS_RSA_WITH_AES.
+
+Проверка готовности доступна по `GET /healthz` без авторизации и не возвращает сведений о конфигурации.
+
+## Режим LIVE
+
+LIVE не включен по умолчанию. Он использует host network, чтобы видеть трафик Linux-узла. Применяйте его только на собственном Linux-узле и только для трафика, который вы вправе анализировать. Укажите в корневом `.env` интерфейс, видящий этот трафик (`PACKMATE_INTERFACE_NAME`), локальный адрес (`PACKMATE_LOCAL_IP`) и при необходимости `PACKMATE_DB_PORT`, затем выполните:
+
+```sh
+docker compose -f compose.yaml -f components/packmate/compose.live.yaml up --build packmate packmate-db
+```
+
+Этот режим добавляет только `NET_RAW` и `NET_ADMIN`; он не использует `privileged` и Docker socket. База данных публикуется только на `127.0.0.1:${PACKMATE_DB_PORT:-65432}`, а веб-интерфейс слушает `BIND_ADDRESS` (по умолчанию `127.0.0.1`) и `PACKMATE_PORT`.
+
+## Переменные и проверки
+
+Остановка с сохранением данных: `./control pack down`. Журнал: `./control pack logs`.
+Корневой `.env` должен содержать непустые `PACKMATE_PASSWORD` и `PACKMATE_DB_PASSWORD`. Команда `./control init` создает файл с секретами, если его еще нет. Полный список переменных приведен в корневом [`.env.example`](../../.env.example).
+
+Локальные проверки из каталога компонента:
+
+```sh
+cd components/packmate/frontend
+npm install --package-lock=false && npm test && npm run typecheck && npm run build
+cd ../../..
+./control pack
+```
+
+Источники и лицензии перечислены в [общем LICENSE](../../LICENSE).

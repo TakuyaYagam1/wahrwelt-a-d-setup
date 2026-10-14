@@ -1,93 +1,110 @@
-# Java: find, fix and verify
+<a id="java-find-fix-and-verify"></a>
 
-English | [Русский](java-RU.md)
+# Java: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-18 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+18 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [JAVA-OBJECT — Java ObjectInputStream](#java-object)
-- [JAVA-RNG — java.util.Random near a possible secret](#java-rng)
-- [JAVA-SQL — Dynamic JDBC SQL](#java-sql)
-- [JAVA-PROCESS — Java process execution](#java-process)
-- [JAVA-JACKSON-TYPES — Jackson default typing](#java-jackson-types)
-- [JAVA-XML — XML parser needs an external-resource policy](#java-xml)
-- [JAVA-EXPRESSION — Client text parsed as SpEL](#java-expression)
-- [JAVA-PATH — Path resolve without a root boundary](#java-path)
-- [JAVA-ZIP-SLIP — ZipEntry becomes an output path](#java-zip-slip)
-- [JAVA-SPRING-BIND — Spring binds request data into a domain entity](#java-spring-bind)
-- [JAVA-SECURITY-MATCHER — Matcher ordering and method security](#java-security-matcher)
-- [JAVA-THREADLOCAL — ThreadLocal leaks the previous request's user](#java-threadlocal)
-- [JAVA-REGEX-DOS — A regular expression blocks a worker](#java-regex-dos)
-- [JAVA-JNDI — Dynamic JNDI lookup name](#java-jndi)
-- [JAVA-ERROR-LEAK — Stack traces and SQL in API errors](#java-error-leak)
-- [JAVA-HOSTNAME-VERIFY — Hostname verifier accepts every peer](#java-hostname-verify)
-- [JAVA-SPRING-CSRF — Spring Security CSRF disabled](#java-spring-csrf)
-- [JAVA-LDAP-FILTER — JNDI search filter assembled by concatenation](#java-ldap-filter)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [JAVA-OBJECT - Десериализация Java через ObjectInputStream](#java-object)
+- [JAVA-RNG - java.util.Random в возможном секрете](#java-rng)
+- [JAVA-SQL - Динамический JDBC SQL](#java-sql)
+- [JAVA-PROCESS - Запуск процесса Java](#java-process)
+- [JAVA-JACKSON-TYPES - Опасная типизация Jackson](#java-jackson-types)
+- [JAVA-XML - XML parser требует явной политики внешних ресурсов](#java-xml)
+- [JAVA-EXPRESSION - Клиентский текст парсится как SpEL](#java-expression)
+- [JAVA-PATH - Path resolve без ограничения корня](#java-path)
+- [JAVA-ZIP-SLIP - ZipEntry становится выходным путём](#java-zip-slip)
+- [JAVA-SPRING-BIND - Spring binding в domain entity](#java-spring-bind)
+- [JAVA-SECURITY-MATCHER - Порядок matchers и method security](#java-security-matcher)
+- [JAVA-THREADLOCAL - ThreadLocal переносит пользователя следующему запросу](#java-threadlocal)
+- [JAVA-REGEX-DOS - Регулярное выражение блокирует поток](#java-regex-dos)
+- [JAVA-JNDI - Недоверенное имя JNDI lookup](#java-jndi)
+- [JAVA-ERROR-LEAK - Stack trace и SQL в API-ошибке](#java-error-leak)
+- [JAVA-HOSTNAME-VERIFY - Hostname verifier принимает любой сервер](#java-hostname-verify)
+- [JAVA-SPRING-CSRF - CSRF отключён в Spring Security](#java-spring-csrf)
+- [JAVA-LDAP-FILTER - Фильтр поиска JNDI собирается конкатенацией](#java-ldap-filter)
 
 <a id="java-object"></a>
 
-## JAVA-OBJECT. Java ObjectInputStream
+<a id="java-object-java-objectinputstream"></a>
 
-**Search:** scanner rule JAVA-OBJECT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-OBJECT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## JAVA-OBJECT. Десериализация Java через ObjectInputStream
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-OBJECT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-OBJECT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~java
 ObjectInputStream in = new ObjectInputStream(stream);
 ~~~
 
-**Fix:** Prefer constrained DTO parsing over native object deserialization; migrate trusted legacy data separately.
+**Исправление:** Внешний вход - типизированный формат со схемой; legacy - план миграции и фильтрации типов.
 
 ~~~java
 Message value = parseValidatedMessage(stream);
 ~~~
 
-**Verification:** Unknown types cannot be constructed; ordinary messages stay compatible.
+**Проверка:** Произвольный граф классов не загружается.
 
 <a id="java-rng"></a>
 
-## JAVA-RNG. java.util.Random near a possible secret
+<a id="java-rng-javautilrandom-near-a-possible-secret"></a>
 
-**Search:** scanner rule JAVA-RNG. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-RNG` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## JAVA-RNG. java.util.Random в возможном секрете
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-RNG. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-RNG. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~java
 Random rng = new Random();
 ~~~
 
-**Fix:** Use SecureRandom and sufficient token length for secrets.
+**Исправление:** Для секретов SecureRandom.nextBytes без предсказуемого seed; хеширование малого пространства не добавляет энтропию.
 
 ~~~java
 SecureRandom rng = new SecureRandom();
 ~~~
 
-**Verification:** No predictable seed or fallback exists; valid tokens work.
+**Проверка:** Нет предсказуемого seed или резервного генератора; challenge/token имеет достаточную энтропию и совместимый формат, штатные токены работают.
 
-**A/D variant:** Public PRNG output and secret challenges. **Reference:** 8-bit-oracle, the author's write-up and saarCTF Java source. One java.util.Random instance generated both public values and challenges. Hashing a 32-bit value does not enlarge its secret space. Scanner: JAVA-RNG; Random outside a security context can be legitimate.
+**Вариант A/D:** Публичный PRNG и секретный challenge. **Основание:** 8-bit-oracle, разбор автора и Java-код saarCTF.
+Один java.util.Random использовался в публичных значениях и challenge.
+Хеш 32-битного значения не создаёт большего пространства секретов.
+Сканер: JAVA-RNG; наличие Random вне security-контекста допустимо.
 
-**Patch:** Use sufficiently long SecureRandom.nextBytes output without predictable seeds; public statistics must not share secret-generator state.
-**Test:** Challenge format and one-time use, randomness source/length and the normal verification workflow. Statistical tests do not prove cryptographic strength.
+**Патч:** SecureRandom.nextBytes достаточной длины без предсказуемого seed;
+публичная статистика не использует состояние генератора секретов.
+**Тест:** формат и одноразовость challenge, длина/источник случайности,
+сохранение обычного потока проверки. Не считать статистический тест доказательством
+криптографической стойкости.
 
-[Source/write-up 1](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/8-bit-oracle/README.md); [source/write-up 2](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/8-bit-oracle/service/_8BitOracle/src/Util.java).
+[исходник/разбор 1](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/8-bit-oracle/README.md); [исходник/разбор 2](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/8-bit-oracle/service/_8BitOracle/src/Util.java).
 
 <a id="java-sql"></a>
 
-## JAVA-SQL. Dynamic JDBC SQL
+<a id="java-sql-dynamic-jdbc-sql"></a>
 
-**Search:** scanner rule JAVA-SQL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-SQL` for details. Regex: executeQuery/executeUpdate/execute/prepareStatement/prepareCall with concatenation or String.format. PreparedStatement does not secure already-built SQL; inspect SQL variables and formatter wrappers.
+## JAVA-SQL. Динамический JDBC SQL
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-SQL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-SQL. Regex: executeQuery/executeUpdate/execute/prepareStatement/prepareCall с конкатенацией или String.format. PreparedStatement не защищает уже собранный SQL; переменные SQL и formatter wrappers вручную.
+
+**Уязвимый вариант:**
 
 ~~~java
 statement.executeQuery("SELECT id FROM notes WHERE name=" + name);
 ~~~
 
-**Fix:** Bind values with PreparedStatement, not already-concatenated SQL; allowlist identifiers.
+**Исправление:** PreparedStatement + setString/setLong; identifiers фиксировать.
 
 ~~~java
 PreparedStatement q = connection.prepareStatement("SELECT id FROM notes WHERE name=?");
@@ -95,17 +112,17 @@ q.setString(1, name);
 q.executeQuery();
 ~~~
 
-**Verification:** Quotes stay data and ownership remains enforced.
+**Проверка:** Кавычки остаются данными; проверка владельца сохраняется.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```java
 // Vulnerable: inputId is interpolated into SQL without an owner constraint.
 ResultSet rs = statement.executeQuery("SELECT body FROM notes WHERE id = '" + inputId + "'");
 ```
 
-**JDBC patch for a private note:**
+**Патч JDBC для приватной заметки:**
 
 ```java
 import java.sql.*;
@@ -126,41 +143,48 @@ final class NoteReader {
 }
 ```
 
-The example assumes `body NOT NULL`. If NULL is allowed, distinguish it from a missing row. The statement/result set are closed, but not the caller-owned connection. Parse incoming IDs with error handling. PreparedStatement around an already concatenated query does not fix injection.
+Пример предполагает `body NOT NULL`. Если схема разрешает NULL, сохранить
+его семантику отдельно от отсутствующей строки. Закрываются statement/result set,
+но не переданное соединение: его жизненным циклом управляет вызывающий код.
+Входной ID парсится с обработкой ошибок. `PreparedStatement` с уже склеенной
+SQL-строкой не исправляет проблему.
 
-**Check:** Owner, other user, anonymous caller; invalid/missing IDs; old data; database errors must not become successful empty responses.
+**Проверить:** своё/чужое/аноним; неверный и отсутствующий ID; прежние данные;
+ошибка БД не выдаёт успешный пустой ответ.
 
 </details>
 
 <a id="java-process"></a>
 
-## JAVA-PROCESS. Java process execution
+<a id="java-process-java-process-execution"></a>
 
-**Search:** scanner rule JAVA-PROCESS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-PROCESS` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## JAVA-PROCESS. Запуск процесса Java
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-PROCESS. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-PROCESS. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~java
 Runtime.getRuntime().exec(command);
 ~~~
 
-**Fix:** Use a library operation or fixed executable with validated argv and bounded time/output.
+**Исправление:** Предпочитать библиотечную операцию либо фиксированную программу с проверенными argv и ограничениями времени и вывода. ProcessBuilder не всегда shell, но shell -c и выбор executable клиентом опасны.
 
 ~~~java
 runValidatedConversion(inputPath); // fixed executable and validated argv inside
 ~~~
 
-**Verification:** Arguments cannot choose another operation; output stays compatible.
+**Проверка:** Клиент не меняет программу/опасные опции; конвертация работает.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```java
 // Vulnerable: ProcessBuilder does not protect an explicit shell command.
 Process p = new ProcessBuilder("sh", "-c", "printf '%s' '" + text + "' | sha256sum").start();
 ```
 
-**Patch for a string's SHA-256 digest:**
+**Патч для SHA-256 строки:**
 
 ```java
 import java.nio.charset.StandardCharsets;
@@ -176,47 +200,55 @@ final class ContentDigest {
 }
 ```
 
-`HexFormat` requires Java 17; on older runtimes use the existing reviewed hex encoder rather than upgrading the entire service for this example. Never share mutable MessageDigest state across threads. Preserve the response format; this digest is not a password-storage algorithm.
+`HexFormat` требует Java 17; на старом runtime использовать существующее
+проверенное кодирование hex, не обновлять весь сервис ради этого примера.
+Не делить один изменяемый `MessageDigest` между потоками. Сохранить ожидаемый
+формат ответа; этот digest не заменяет алгоритм хранения паролей.
 
-**Check:** Known digest, empty text, Unicode and quotes; reject null at the API boundary; no external program runs.
+**Проверить:** известный digest, пустой текст, Unicode и кавычки; `null` отклонён
+на входе API; внешняя программа не запускается.
 
 </details>
 
 <a id="java-jackson-types"></a>
 
-## JAVA-JACKSON-TYPES. Jackson default typing
+<a id="java-jackson-types-jackson-default-typing"></a>
 
-**Search:** scanner rule JAVA-JACKSON-TYPES. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-JACKSON-TYPES` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## JAVA-JACKSON-TYPES. Опасная типизация Jackson
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-JACKSON-TYPES. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-JACKSON-TYPES. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~java
 mapper.enableDefaultTyping();
 ~~~
 
-**Fix:** Prefer explicit DTOs; required polymorphism needs a narrow type set/validator for the installed version, not a package-wide allowlist.
+**Исправление:** Конкретные DTO; если полиморфизм необходим - ограниченный набор подтипов/валидатор своей версии, не package-wide allowlist.
 
 ~~~java
 // deserialize into a fixed DTO without client-selected implementation types
 ~~~
 
-**Verification:** Unknown types fail before side effects; valid documents remain readable.
+**Проверка:** Неизвестный тип отвергается до побочных эффектов; старый допустимый документ читается.
 
-**Reference:** [primary source](https://github.com/FasterXML/jackson-docs/wiki/JacksonPolymorphicDeserialization).
+**Основание:** [первичный материал](https://github.com/FasterXML/jackson-docs/wiki/JacksonPolymorphicDeserialization).
 
 <a id="java-xml"></a>
 
-## JAVA-XML. XML parser needs an external-resource policy
+<a id="java-xml-xml-parser-needs-an-external-resource-policy"></a>
 
-**Search:** scanner rule JAVA-XML. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-XML` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## JAVA-XML. XML parser требует явной политики внешних ресурсов
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-XML. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-XML. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~java
 var f = DocumentBuilderFactory.newInstance();
 ~~~
 
-**Fix:** Restrict DTD/entities/schema/XSLT on the actual factory and set limits; never silently ignore unsupported security options.
+**Исправление:** Ограничить DTD/entities/schema/XSLT для конкретного factory, включить лимиты. Неподдержанный security feature не игнорировать.
 
 ~~~java
 var f = DocumentBuilderFactory.newInstance();
@@ -225,61 +257,65 @@ f.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
 // also configure DTD/entity policy and parser-specific limits
 ~~~
 
-**Verification:** Parser reads no external files/URLs; ordinary XML and size limits work.
+**Проверка:** Parser не читает внешние файлы/URL; допустимый XML и лимиты работают.
 
-**Reference:** [primary source](https://docs.oracle.com/en/java/javase/17/security/java-api-xml-processing-jaxp-security-guide.html).
+**Основание:** [первичный материал](https://docs.oracle.com/en/java/javase/17/security/java-api-xml-processing-jaxp-security-guide.html).
 
 <a id="java-expression"></a>
 
-## JAVA-EXPRESSION. Client text parsed as SpEL
+<a id="java-expression-client-text-parsed-as-spel"></a>
 
-**Search:** scanner rule JAVA-EXPRESSION. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-EXPRESSION` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## JAVA-EXPRESSION. Клиентский текст парсится как SpEL
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило JAVA-EXPRESSION. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-EXPRESSION. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~java
 parser.parseExpression(input).getValue(context);
 ~~~
 
-**Fix:** Use fixed operations/arguments or a restricted DSL and evaluation context; never expose arbitrary reflection.
+**Исправление:** Фиксированные операции и аргументы; если DSL нужен, минимальная грамматика и возможности evaluation context. Не отдавать полный reflection клиенту.
 
 ~~~java
 lookupAllowedOperation(operationId, validatedArguments);
 ~~~
 
-**Verification:** Disallowed operations cannot reach runtime; approved calculations work.
+**Проверка:** Запрещённые операции не достигают runtime; разрешённые вычисления сохранены.
 
-**Reference:** [primary source](https://docs.spring.io/spring-framework/reference/core/expressions.html).
+**Основание:** [первичный материал](https://docs.spring.io/spring-framework/reference/core/expressions.html).
 
 <a id="java-path"></a>
 
-## JAVA-PATH. Path resolve without a root boundary
+<a id="java-path-path-resolve-without-a-root-boundary"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-PATH. Path resolve без ограничения корня
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'resolve\(|readAllBytes|new File|Paths.get|toRealPath' .
 ~~~
 
-Compare root and target Paths after normalization/link resolution; check ownership and open-time races.
+Сравнить Path root и target после нормализации/разрешения ссылки; проверить ownership и гонку открытия.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`Files.readAllBytes(base.resolve(name))` reads a client-selected name without a boundary.
+Files.readAllBytes(base.resolve(name)) читает имя клиента без границы.
 
-**Fix:** Derive a server-side filename from an authorized ID, or enforce Path containment with an explicit symlink policy and safe opening; bound reads.
+**Исправление:** Серверное имя из авторизованного ID либо Path containment, отдельная политика symlink и безопасное открытие; лимит чтения.
 
-**Verification:** Sibling directory with a shared prefix, absolute path, symlink, another owner's object and a legitimate file.
+**Проверка:** Соседний каталог с общим префиксом, absolute path, symlink, чужой объект и штатный файл.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```java
 // Vulnerable: name can move the read outside the permitted directory.
 byte[] data = Files.readAllBytes(base.resolve(name));
 ```
 
-**Patch for existing files in a trusted immutable tree:**
+**Патч для существующих файлов в доверенном неизменяемом дереве:**
 
 ```java
 import java.io.IOException;
@@ -300,234 +336,260 @@ final class FileBoundary {
 }
 ```
 
-`startsWith` here is a **Path** method, not string-prefix comparison. `toRealPath` requires existence and resolves symlinks. A mutable tree still permits TOCTOU between checking and opening: use platform-supported directory-relative safe opening. This snippet is not for writing or archive extraction. Authorization and read limits remain separate requirements.
+Здесь `startsWith` - метод **Path**, не строковое сравнение. `toRealPath` требует
+существования и учитывает symlink. Если дерево может меняться между проверкой
+и открытием, остаётся TOCTOU: нужен подход с безопасным открытием относительно
+каталога, поддержанный платформой. Этот фрагмент не предназначен для записи
+или распаковки архивов. Проверка права на файл и лимит чтения требуются отдельно.
 
-**Check:** Allowed file, similarly named sibling directory, absolute path, outward link, missing file and another user's file.
+**Проверить:** разрешённый файл, соседний каталог с похожим именем, абсолютный
+путь, ссылка наружу, отсутствие файла, файл другого пользователя.
 
 </details>
 
-**Reference:** [primary source](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/nio/file/Path.html).
+**Основание:** [первичный материал](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/nio/file/Path.html).
 
 <a id="java-zip-slip"></a>
 
-## JAVA-ZIP-SLIP. ZipEntry becomes an output path
+<a id="java-zip-slip-zipentry-becomes-an-output-path"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-ZIP-SLIP. ZipEntry становится выходным путём
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'ZipInputStream|ZipFile|getName\(|resolve\(' .
 ~~~
 
-Trace every entry through target selection to writing, including directory names and link metadata.
+Пройти каждый entry -> target -> write, включая имена каталогов и metadata links.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An archive name is joined to a directory without containment or checking the actual filesystem tree.
+Имя из архива присоединено к каталогу без containment и контроля фактического дерева.
 
-**Fix:** Validate all paths/types, avoid untrusted links, limit expanded size/entries and publish only after success.
+**Исправление:** Валидировать все пути/типы, не следовать недоверенным ссылкам, ограничить размер/entries и публиковать после успеха.
 
-**Verification:** Ordinary archive, absolute/traversal entries, volume overflow and cleanup after rejection.
+**Проверка:** Обычный архив, absolute/traversal entry, превышение объёма и уборка при отказе.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
 
 <a id="java-spring-bind"></a>
 
-## JAVA-SPRING-BIND. Spring binds request data into a domain entity
+<a id="java-spring-bind-spring-binds-request-data-into-a-domain-entity"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-SPRING-BIND. Spring binding в domain entity
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e '@ModelAttribute|@RequestBody|DataBinder|setAllowedFields|BeanUtils' .
 ~~~
 
-Compare public setters, nested properties and ownership fields with incoming data.
+Сверить публичные setters, nested properties и поля владельца с данными запроса.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The binder writes owner/admin/status into an entity before authorization.
+Binder пишет owner/admin/status в entity до проверки доступа.
 
-**Fix:** A dedicated request DTO with allowed fields, copied explicitly after authorization; restrict nested paths.
+**Исправление:** Отдельный request DTO с разрешёнными полями и явное копирование после auth; ограничения вложенных путей.
 
-**Verification:** Administrative fields and nested updates cannot change; legitimate partial updates work.
+**Проверка:** Служебные поля и nested update не меняются; допустимое частичное обновление работает.
 
 <a id="java-security-matcher"></a>
 
-## JAVA-SECURITY-MATCHER. Matcher ordering and method security
+<a id="java-security-matcher-matcher-ordering-and-method-security"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-SECURITY-MATCHER. Порядок matchers и method security
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'SecurityFilterChain|requestMatchers|permitAll|PreAuthorize|EnableMethodSecurity' .
 ~~~
 
-Check the first matching rule, all HTTP methods, dispatch types and whether method security is actually enabled.
+Проверить первый подходящий matcher, все HTTP-методы, dispatch types и включение method security.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A broad permitAll precedes a private rule, or the method annotation is inactive.
+Широкий permitAll срабатывает раньше приватного правила; аннотация метода не активна.
 
-**Fix:** Explicit route policy with default denial for private areas and resource checks in the service layer; preserve intended public endpoints.
+**Исправление:** Явная политика маршрутов с отказом по умолчанию для приватной области, проверка ресурса в service; согласовать публичные endpoint.
 
-**Verification:** Anonymous, ordinary and administrator users get their expected routes/methods; error/forward dispatch does not bypass authorization.
+**Проверка:** Аноним, обычный user и admin проходят ожидаемые маршруты/методы; error/forward не обходят auth.
 
 <a id="java-threadlocal"></a>
 
-## JAVA-THREADLOCAL. ThreadLocal leaks the previous request's user
+<a id="java-threadlocal-threadlocal-leaks-the-previous-requests-user"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-THREADLOCAL. ThreadLocal переносит пользователя следующему запросу
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'ThreadLocal|SecurityContext|Executor|CompletableFuture|remove\(' .
 ~~~
 
-Review set/remove inside finally and context propagation into thread pools.
+Сверить set/remove в finally и передачу контекста в thread pool.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A thread is reused after an exception with the previous principal still attached.
+Поток переиспользуется после исключения с прежним principal.
 
-**Fix:** Use the framework's security-context lifecycle or explicit cleanup; give async tasks minimal immutable context.
+**Исправление:** Штатный security-context lifecycle или явная очистка; async task получает минимальный неизменяемый контекст.
 
-**Verification:** Sequential different users on the same worker and an exception between context setup and cleanup.
+**Проверка:** Последовательные разные пользователи на одном worker и исключение между установкой/очисткой.
 
 <a id="java-regex-dos"></a>
 
-## JAVA-REGEX-DOS. A regular expression blocks a worker
+<a id="java-regex-dos-a-regular-expression-blocks-a-worker"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-REGEX-DOS. Регулярное выражение блокирует поток
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Pattern.compile|Matcher|matches\(|replaceAll' .
 ~~~
 
-Review nested quantifiers and long near-matches; request timeout does not necessarily interrupt the matcher.
+Проверить вложенные квантификаторы и почти совпадающие длинные строки; timeout запроса не обязательно прерывает matcher.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Backtracking on client input occupies a worker beyond the HTTP timeout.
+Backtracking на вводе клиента занимает worker вне установленного HTTP timeout.
 
-**Fix:** Simplify the pattern or use a deterministic parser, limit input length and, where compatible, use a bounded-complexity engine.
+**Исправление:** Упростить паттерн/детерминированный parser, ограничить длину, при нужде совместимый движок с ограниченной сложностью.
 
-**Verification:** Long failing matches finish within budget; normal formats and Unicode remain compatible.
+**Проверка:** Длинный неуспешный match завершается в бюджете; обычный формат и Unicode сохранены.
 
 <a id="java-jndi"></a>
 
-## JAVA-JNDI. Dynamic JNDI lookup name
+<a id="java-jndi-dynamic-jndi-lookup-name"></a>
 
-**Search:** scanner rule JAVA-JNDI. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-JNDI` for details. Regex: InitialContext.doLookup or ctx/context/initialContext.lookup with a non-string argument. Inspect arbitrary receiver names and indirect calls manually.
+## JAVA-JNDI. Недоверенное имя JNDI lookup
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** скрипт, правило JAVA-JNDI. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-JNDI. Regex: InitialContext.doLookup или ctx/context/initialContext.lookup с нестроковым аргументом. Произвольные имена объектов и косвенные вызовы искать вручную.
+
+Дополнительный ручной поиск для непокрытых форм:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'InitialContext|JndiTemplate|lookup\(|NamingManager' .
 ~~~
 
-Trace the name/provider URL and local object factories; disabling remote codebases does not remove other effects.
+Проследить имя/provider URL и локальные object factories; ограничения удалённого codebase не отменяют остальные эффекты.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The client selects the resource/service for a lookup using application privileges.
+Клиент выбирает ресурс/службу для lookup с привилегиями приложения.
 
-**Fix:** Use a closed map of trusted local names and restrict providers; JDK updates do not replace input validation.
+**Исправление:** Закрытая серверная карта доверенных локальных имён, ограниченные providers/factories и совместимый исправленный runtime. Обновление JDK не заменяет проверку входных данных.
 
-**Verification:** Valid resources resolve; unknown/external names cannot initiate lookups or change backend.
+**Проверка:** Чужая схема/имя не вызывает lookup; штатный datasource работает.
 
-**Scanner example before:**
+
+**Сигнал сканера - пример до:**
 
 ~~~java
 Object value = context.lookup(requestName);
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~java
 Object value = context.lookup("java:comp/env/jdbc/Notes");
 ~~~
 
-Primary documentation: [reference 1](https://docs.oracle.com/en/java/javase/21/docs/api/java.naming/javax/naming/InitialContext.html).
+Первичная документация: [документация 1](https://docs.oracle.com/en/java/javase/21/docs/api/java.naming/javax/naming/InitialContext.html).
 
 <a id="java-error-leak"></a>
 
-## JAVA-ERROR-LEAK. Stack traces and SQL in API errors
+<a id="java-error-leak-stack-traces-and-sql-in-api-errors"></a>
 
-**Search:** manual review; no separate scanner rule.
+## JAVA-ERROR-LEAK. Stack trace и SQL в API-ошибке
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'printStackTrace|getMessage\(|ResponseEntity|ExceptionHandler' .
 ~~~
 
-Compare private logs with client response bodies for authorization, SQL and parser failures.
+Сравнить локальный журнал и клиентский body для ошибок auth/SQL/parser.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An exception exposes SQL, paths, connection strings or secret arguments to the client.
+Клиент получает SQL, пути, connection string или секретные параметры из exception.
 
-**Fix:** Return a standard encoded error with correlation ID; redact sensitive values before logging.
+**Исправление:** Штатная кодированная ошибка и correlation ID; чувствительные значения редактировать до логирования.
 
-**Verification:** Diagnostics remain private; error responses contain no private data.
+**Проверка:** Диагностика остаётся локально, ответы ошибок не содержат приватных данных.
 
 <a id="java-hostname-verify"></a>
 
-## JAVA-HOSTNAME-VERIFY. Hostname verifier accepts every peer
+<a id="java-hostname-verify-hostname-verifier-accepts-every-peer"></a>
 
-**Search:** scanner rule JAVA-HOSTNAME-VERIFY. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-HOSTNAME-VERIFY` for details. Regex: NoopHostnameVerifier/ALLOW_ALL_HOSTNAME_VERIFIER and setHostnameVerifier with a simple true-lambda. Review complex callbacks and TrustManager separately.
+## JAVA-HOSTNAME-VERIFY. Hostname verifier принимает любой сервер
 
-**Vulnerable example:** Certificate-chain validation without hostname validation does not authenticate the intended server.
+**Поиск:** скрипт, правило JAVA-HOSTNAME-VERIFY. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-HOSTNAME-VERIFY. Regex: NoopHostnameVerifier/ALLOW_ALL_HOSTNAME_VERIFIER и setHostnameVerifier с простой true-lambda; сложные callbacks и TrustManager требуют ручного анализа.
+
+**Уязвимый вариант:** Проверка цепочки сертификата без имени не подтверждает нужный сервер.
 
 ~~~java
 builder.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE);
 ~~~
 
-**Fix:** Restore the default verifier and trusted store instead of always-true callbacks.
+**Исправление:** Вернуть стандартный verifier и доверенный trust store; не подменять его callback, всегда возвращающим true.
 
 ~~~java
 builder.setSSLHostnameVerifier(new DefaultHostnameVerifier());
 ~~~
 
-**Verification:** Trusted CA certificates for another host fail; the intended endpoint works.
+**Проверка:** Сертификат доверенного CA для другого hostname отклоняется; свой endpoint работает.
 
-Primary documentation: [reference 1](https://hc.apache.org/httpcomponents-client-5.5.x/current/httpclient5/apidocs/org/apache/hc/client5/http/ssl/NoopHostnameVerifier.html).
+Первичная документация: [документация 1](https://hc.apache.org/httpcomponents-client-5.5.x/current/httpclient5/apidocs/org/apache/hc/client5/http/ssl/NoopHostnameVerifier.html).
 
 <a id="java-spring-csrf"></a>
 
-## JAVA-SPRING-CSRF. Spring Security CSRF disabled
+<a id="java-spring-csrf-spring-security-csrf-disabled"></a>
 
-**Search:** scanner rule JAVA-SPRING-CSRF. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain JAVA-SPRING-CSRF` for details. Regex: csrf().disable(), csrf(x -> x.disable()) and csrf(AbstractHttpConfigurer::disable). Review individual security chains and matchers.
+## JAVA-SPRING-CSRF. CSRF отключён в Spring Security
 
-**Vulnerable example:** Global disable can remove CSRF protection from cookie-authenticated operations.
+**Поиск:** скрипт, правило JAVA-SPRING-CSRF. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain JAVA-SPRING-CSRF. Regex: csrf().disable(), csrf(x -> x.disable()) и csrf(AbstractHttpConfigurer::disable). Отдельные security chains и матчеры просматривать вручную.
+
+**Уязвимый вариант:** Cookie-auth операции могут потерять CSRF-защиту при глобальном disable.
 
 ~~~java
 http.csrf(csrf -> csrf.disable());
 ~~~
 
-**Fix:** Keep protection for browser routes; restrict exemptions to an explicit bearer/webhook contract with no cookie fallback.
+**Исправление:** Сохранить защиту браузерных запросов; исключения ограничить конкретным bearer/webhook контрактом и проверить отсутствие cookie fallback.
 
 ~~~java
 http.csrf(Customizer.withDefaults());
 ~~~
 
-**Verification:** Valid CSRF requests work; cookie POST without a token fails; approved API scenarios work.
+**Проверка:** Штатный запрос с CSRF работает, cookie POST без токена отвергнут; разрешённый API сценарий не сломан.
 
-Primary documentation: [reference 1](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html).
+Первичная документация: [документация 1](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html).
 
 <a id="java-ldap-filter"></a>
 
-## JAVA-LDAP-FILTER. JNDI search filter assembled by concatenation
+<a id="java-ldap-filter-jndi-search-filter-assembled-by-concatenation"></a>
 
-**Search:** scanner rule JAVA-LDAP-FILTER. Use `--explain JAVA-LDAP-FILTER` for the exact detector contract. Regex with lexical exclusions: ctx/context/dirContext.search with a simple first argument and directly concatenated string filter. Does not resolve receiver types, prebuilt filters, wrappers or earlier escaping.
+## JAVA-LDAP-FILTER. Фильтр поиска JNDI собирается конкатенацией
 
-**Vulnerable example:**
+**Поиск:** правило сканера JAVA-LDAP-FILTER. Точный контракт детектора: `--explain JAVA-LDAP-FILTER`. Regex с лексическими исключениями: ctx/context/dirContext.search с простым первым аргументом и напрямую склеенным строковым фильтром. Не разрешает тип получателя, заранее собранные фильтры, wrappers и предшествующее экранирование.
+
+**Уязвимый вариант:**
 
 ~~~java
 ctx.search(base, "(uid=" + name + ")", controls);
 ~~~
 
-**Fix:** Use JNDI filter arguments with a fixed filter, and retain explicit search scope and authorization.
+**Исправление:** Используйте аргументы фильтра JNDI с фиксированным фильтром; сохраняйте явную область поиска и авторизацию.
 
 ~~~java
 ctx.search(base, "(uid={0})", new Object[] { name }, controls);
 ~~~
 
-**Verification:** Filter metacharacters remain values; unauthorized entries stay inaccessible and valid searches work.
+**Проверка:** Метасимволы фильтра остаются значениями; недоступные пользователю записи не раскрываются, а допустимые поиски работают.
 
-[Primary reference 1](https://docs.oracle.com/javase/jndi/tutorial/ldap/search/search.html)
+[Первичный источник 1](https://docs.oracle.com/javase/jndi/tutorial/ldap/search/search.html)

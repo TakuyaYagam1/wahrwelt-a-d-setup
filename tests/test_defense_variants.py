@@ -1,4 +1,4 @@
-"""Independent detector regressions. Fixture code is data and never executed."""
+"""Независимые примеры детекторов. Код примеров не исполняется."""
 import importlib.util
 import json
 from pathlib import Path

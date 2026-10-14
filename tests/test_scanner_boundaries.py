@@ -1,4 +1,4 @@
-"""Independent, inert boundary regressions: no dependencies or target execution."""
+"""Границы сканера проверяются без зависимостей и исполнения исходников."""
 import contextlib
 import hashlib
 import importlib.util
@@ -21,7 +21,7 @@ def load(name):
     return module
 
 
-scanner, diff, ops = load("defense_scan"), load("defense_diff"), load("defense_ops")
+scanner, diff = load("defense_scan"), load("defense_diff")
 RULES = scanner.load_rules()
 CASES = json.loads((ROOT / "tests/fixtures/defense_boundaries.json").read_text(encoding="utf-8"))["cases"]
 
@@ -71,22 +71,16 @@ class ScannerBoundaryContractTests(unittest.TestCase):
         old.pop("sha256")
         old["sha256"] = hashlib.sha256(scanner._canonical_json(old)).hexdigest()
         self.assertEqual(diff.validate_scope(old), old)
-        self.assertEqual(ops._validate_scanner_scope(old), old)
-        self.assertEqual(ops._validate_scanner_scope(scope), scope)
-        common = {"tool": "DurkaHelper defense_scan", "version": scanner.VERSION, "offline": True,
+        common = {"tool": "wahrwelt defense_scan", "version": scanner.VERSION, "offline": True,
                   "created_at": "2026-10-09T00:00:00Z", "findings": [], "issues": [], "partial": False, "exit_code": 0}
         first, second = {**common, "scope": old}, {**common, "scope": scope}
         self.assertEqual(diff.compare_reports(diff.validate_report(first), diff.validate_report(second))["exit_code"], 2)
-        self.assertEqual(ops._sanitize_scanner_report(second)["scope"], scope)
-        self.assertEqual(ops._sanitize_scanner_report(first)["scope"], old)
 
-    def test_unknown_semantics_rejected_by_both_consumers(self):
+    def test_unknown_semantics_rejected_by_comparator(self):
         scope = scanner.scan_scope(Path("example"), RULES, [], 1024, 50, 50)
         scope["semantic_revision"] = "unknown"
         with self.assertRaises(ValueError):
             diff.validate_scope(scope)
-        with self.assertRaises(ops.DefenseError):
-            ops._validate_scanner_scope(scope)
 
     def test_javascript_limits_are_partial_not_clean(self):
         for text, issue in [("x;" * 50001, "javascript_token_limit"),

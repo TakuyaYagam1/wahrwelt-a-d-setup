@@ -1,0 +1,72 @@
+services:
+  packmate:
+    build:
+      context: .
+      additional_contexts:
+        project: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      packmate-db:
+        condition: service_healthy
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: "65000"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://packmate-db:5432/packmate
+      SPRING_DATASOURCE_USERNAME: packmate
+      SPRING_DATASOURCE_PASSWORD: ${PACKMATE_DB_PASSWORD:?Задайте PACKMATE_DB_PASSWORD}
+      PACKMATE_USERNAME: ${PACKMATE_USERNAME:-packmate}
+      PACKMATE_PASSWORD: ${PACKMATE_PASSWORD:?Задайте PACKMATE_PASSWORD}
+      PACKMATE_CAPTURE_MODE: ${PACKMATE_CAPTURE_MODE:-FILE}
+      PACKMATE_INTERFACE_NAME: ${PACKMATE_INTERFACE_NAME:-lo}
+      PACKMATE_PCAP_FILE: ${PACKMATE_PCAP_FILE:-/pcaps/capture.pcap}
+      PACKMATE_LOCAL_IP: ${PACKMATE_LOCAL_IP:-192.0.2.1}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PACKMATE_PORT:-65000}:65000"
+    volumes:
+      - ../../local/pcaps:/pcaps:ro
+      - ../../local/rsa_keys:/app/rsa_keys:ro
+    networks:
+      - default
+      - packmate-data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=1777,size=64m
+      - /jna-tmp:rw,exec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=16m
+    cap_drop:
+      - ALL
+    mem_limit: ${PACKMATE_MEMORY_LIMIT:-2g}
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  packmate-db:
+    build:
+      context: ../../containers
+      dockerfile: postgres.Dockerfile
+    environment:
+      POSTGRES_DB: packmate
+      POSTGRES_USER: packmate
+      POSTGRES_PASSWORD: ${PACKMATE_DB_PASSWORD:?Задайте PACKMATE_DB_PASSWORD}
+    volumes:
+      - packmate-db:/var/lib/postgresql
+    networks:
+      - packmate-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U packmate -d packmate"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    mem_limit: 1g
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  packmate-db:
+
+networks:
+  packmate-data:
+    internal: true

@@ -1,56 +1,63 @@
-# Go: find, fix and verify
+<a id="go-find-fix-and-verify"></a>
 
-English | [Русский](go-RU.md)
+# Go: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-19 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+19 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [GO-SQL — Dynamic Go SQL](#go-sql)
-- [GO-HASH-SUM — Non-empty argument to hash.Sum](#go-hash-sum)
-- [GO-HTML — Go autoescape bypass](#go-html)
-- [GO-TLS — InsecureSkipVerify](#go-tls)
-- [GO-SHELL — Go exec.Command launches a shell](#go-shell)
-- [GO-CRC — CRC near an identifier or trust boundary](#go-crc)
-- [GO-MATH-RAND — math/rand near a possible secret](#go-math-rand)
-- [GO-READALL-BODY — ReadAll on a request body](#go-readall-body)
-- [GO-PPROF — pprof registered on an HTTP mux](#go-pprof)
-- [GO-FILESERVER — FileServer publishes a file tree](#go-fileserver)
-- [GO-AUTH-RETURN — Execution continues after http.Error](#go-auth-return)
-- [GO-JSON-FIELDS — JSON entities and ambiguous keys](#go-json-fields)
-- [GO-RACE — Shared map/slice state and check-then-use](#go-race)
-- [GO-ERROR-DEFAULT — Ignored errors produce a zero principal](#go-error-default)
-- [GO-SSRF — HTTP clients and redirects](#go-ssrf)
-- [GO-ZIP-PATH — filepath.Join does not enforce containment](#go-zip-path)
-- [GO-TLS-MIN — Obsolete minimum TLS version](#go-tls-min)
-- [GO-JWT-UNVERIFIED — JWT without signature or claims verification](#go-jwt-unverified)
-- [GO-UPLOAD-PATH — Multipart filename used directly in a joined path](#go-upload-path)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [GO-SQL - Динамический SQL Go](#go-sql)
+- [GO-HASH-SUM - Непустой аргумент hash.Sum](#go-hash-sum)
+- [GO-HTML - Обход autoescape Go](#go-html)
+- [GO-TLS - Отключена проверка TLS-сертификата](#go-tls)
+- [GO-SHELL - Go exec.Command запускает shell](#go-shell)
+- [GO-CRC - CRC используется как идентификатор/контроль доверия](#go-crc)
+- [GO-MATH-RAND - math/rand рядом с возможным секретом](#go-math-rand)
+- [GO-READALL-BODY - ReadAll тела запроса](#go-readall-body)
+- [GO-PPROF - pprof регистрируется на HTTP mux](#go-pprof)
+- [GO-FILESERVER - FileServer публикует дерево файлов](#go-fileserver)
+- [GO-AUTH-RETURN - После http.Error выполнение продолжается](#go-auth-return)
+- [GO-JSON-FIELDS - JSON в entity и неоднозначные ключи](#go-json-fields)
+- [GO-RACE - Общие map/slice и check-then-use](#go-race)
+- [GO-ERROR-DEFAULT - Игнорирование ошибки даёт нулевого субъекта](#go-error-default)
+- [GO-SSRF - Go HTTP client и redirects](#go-ssrf)
+- [GO-ZIP-PATH - filepath.Join не обеспечивает containment](#go-zip-path)
+- [GO-TLS-MIN - Явно разрешён устаревший TLS](#go-tls-min)
+- [GO-JWT-UNVERIFIED - JWT без подписи или проверки claims](#go-jwt-unverified)
+- [GO-UPLOAD-PATH - Имя multipart-файла напрямую включается в путь](#go-upload-path)
 
 <a id="go-sql"></a>
 
-## GO-SQL. Dynamic Go SQL
+<a id="go-sql-dynamic-go-sql"></a>
 
-**Search:** scanner rule GO-SQL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-SQL` for details. Regex: Query/QueryRow/Exec/Prepare and Context forms with concatenation or fmt.Sprintf. Simple context expressions are supported; review complex syntax, fmt aliases and preassembled SQL.
+## GO-SQL. Динамический SQL Go
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-SQL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-SQL. Regex: Query/QueryRow/Exec/Prepare и Context-варианты с конкатенацией или fmt.Sprintf. Простой context expression поддержан; сложный синтаксис/aliases fmt и заранее собранный SQL вручную.
+
+**Уязвимый вариант:**
 
 ~~~go
 db.Query("SELECT id FROM notes WHERE name=" + name)
 ~~~
 
-**Fix:** Bind values using actual driver placeholders; allowlist identifiers.
+**Исправление:** Передавать значения аргументами; placeholder зависит от драйвера. Идентификаторы выбирать из разрешённого набора.
 
 ~~~go
 db.Query("SELECT id FROM notes WHERE name=$1", name)
 ~~~
 
-**Verification:** Quotes remain values; legitimate queries and ownership checks work.
+**Проверка:** Кавычки - данные; права сохранены.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```go
 // Vulnerable: client input becomes SQL syntax.
@@ -58,7 +65,7 @@ q := fmt.Sprintf("SELECT body FROM notes WHERE id = '%s'", inputID)
 err := db.QueryRowContext(ctx, q).Scan(&body)
 ```
 
-**Patch for a private note:**
+**Патч для приватной заметки:**
 
 ```go
 import (
@@ -76,34 +83,44 @@ func ReadPrivateNote(ctx context.Context, db *sql.DB, userID, noteID int64) (str
 }
 ```
 
-Parse the ID with a checked conversion before this call. Map sql.ErrNoRows to the normal unavailable-object response; never return body as success for other errors. Verify placeholder syntax for MySQL or another driver.
+До вызова разобрать ID через проверяемое преобразование, не игнорировать ошибку
+парсинга. `sql.ErrNoRows` перевести в штатное отсутствие доступного объекта;
+при любой иной ошибке не выдавать `body` как успешный результат. Для MySQL/другого
+драйвера проверить синтаксис маркеров - он может отличаться.
 
-**Check:** Owner, other user, missing object, invalid ID, context cancellation/timeout and old records. After list iteration check rows.Err().
+**Проверить:** своё, чужое, отсутствующий объект; неверный ID; отмена/таймаут
+контекста; старые записи. В списках проверять ошибку `rows.Err()` после обхода.
 
 </details>
 
 <a id="go-hash-sum"></a>
 
-## GO-HASH-SUM. Non-empty argument to hash.Sum
+<a id="go-hash-sum-non-empty-argument-to-hashsum"></a>
 
-**Search:** scanner rule GO-HASH-SUM. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-HASH-SUM` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-HASH-SUM. Непустой аргумент hash.Sum
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-HASH-SUM. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-HASH-SUM. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 digest := h.Sum(record.Hash[:])
 ~~~
 
-**Fix:** Use Write to hash bytes and Sum(nil) for the digest; Sum appends a digest instead of hashing its argument.
+**Исправление:** Hash.Sum(b) добавляет digest к b, не хеширует b: сначала Write(data), потом Sum(nil). Проверить длину/все подписанные поля.
 
 ~~~go
 h.Write(record.Hash[:])
 digest := h.Sum(nil)
 ~~~
 
-**Verification:** Known vectors match; legacy digest formats are migrated deliberately.
+**Проверка:** Результаты совпадают с известными тестовыми векторами; старые форматы digest мигрируют явно. Изменение каждого подписанного поля нарушает подпись.
 
-**A/D variant:** Sum does not hash its argument. **Reference:** certified-transparency, analysis of three saarCTF source files. Checksum passed Hash to Sum; ToHash copied the first 32 output bytes. Go semantics mean those bytes could be the original Hash rather than the digest of previously written Size/Timestamp. The full service was not reproduced. Scanner: GO-HASH-SUM.
+**Вариант A/D:** Sum не хеширует свой аргумент. **Основание:** certified-transparency, анализ трёх файлов saarCTF.
+Checksum передавал Hash в Sum; ToHash копировал первые 32 байта результата.
+Из семантики Go следует: эти байты могли быть исходным Hash, а не digest
+ранее записанных Size/Timestamp. Полный сервис мы не воспроизводили.
+Сканер: GO-HASH-SUM.
 
 ~~~go
 // Before: return ToHash(h.Sum(record.Hash[:]))
@@ -112,39 +129,44 @@ h.Write(record.Hash[:])
 return ToHash(h.Sum(nil))
 ~~~
 
-**Test:** Change Size, Timestamp and Hash individually; each old signature must fail. Plan signature-format migration and legacy-data compatibility. A nonempty Sum argument is not always wrong: buf[:0] can reuse preallocated storage. Inspect the consumer of the result.
+**Тест:** изменить по одному Size, Timestamp, Hash: каждая старая подпись должна
+перестать приниматься. Согласовать переход формата подписей и старые данные.
+Непустой Sum не всегда ошибка: buf[:0] может использоваться для выделенной
+заранее памяти. Поэтому сигнал требует чтения потребителя результата.
 
-[source/write-up 1](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/certified-transparency/service/pkg/models/serialization.go); [source/write-up 2](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/certified-transparency/service/pkg/models/models.go); [source/write-up 3](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/certified-transparency/service/pkg/signatures.go).
+[исходник/разбор 1](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/certified-transparency/service/pkg/models/serialization.go); [исходник/разбор 2](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/certified-transparency/service/pkg/models/models.go); [исходник/разбор 3](https://github.com/saarsec/saarctf-2024/blob/3a06d18974ca177c6dd251a11bdf9b4b334f382a/certified-transparency/service/pkg/signatures.go).
 
 <a id="go-html"></a>
 
-## GO-HTML. Go autoescape bypass
+<a id="go-html-go-autoescape-bypass"></a>
 
-**Search:** scanner rule GO-HTML. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-HTML` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-HTML. Обход autoescape Go
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-HTML. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-HTML. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 value := template.HTML(input)
 ~~~
 
-**Fix:** Pass strings to html/template; use trusted HTML only after a reviewed sanitizer if needed.
+**Исправление:** Обычная строка в html/template; sanitizer только для предусмотренного богатого HTML.
 
 ~~~go
 value := input // string passed to html/template
 ~~~
 
-**Verification:** User tags/quotes render as text; intended formatting works.
+**Проверка:** Теги и кавычки пользователя отображаются текстом; предусмотренное форматирование работает.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```go
 // Vulnerable when message is client-controlled.
 err := page.Execute(w, template.HTML(message))
 ```
 
-**Patch for rendering ordinary text:**
+**Патч для вывода обычного текста:**
 
 ```go
 import (
@@ -161,78 +183,97 @@ func RenderMessage(w io.Writer, message string) error {
 }
 ```
 
-The template is fixed and the data is an ordinary string. Use html/template, not text/template, for HTML. Do not replace the problem with template.JS/template.URL, which also assert trust. A fixed template may be parsed once at startup. Account for partial HTTP responses on render failure; buffer first where necessary.
+Шаблон фиксирован; данные - обычная строка. Использовать `html/template`, а не
+`text/template`, для HTML. Не заменять ошибку типом `template.JS`/`template.URL`:
+эти типы тоже выражают доверие к данным. В реальном приложении фиксированный
+шаблон можно разобрать один раз при старте. Если возможна ошибка рендеринга,
+учесть частично записанный HTTP-ответ: при необходимости сначала рендерить в буфер.
 
-**Check:** Markup/quotes display as text, Unicode survives, message itself is never compiled, and contractual formatting remains available.
+**Проверить:** разметка и кавычки отображаются текстом, Unicode сохранён;
+сервис не стал компилировать сам message; допустимое форматирование по контракту работает.
 
 </details>
 
 <a id="go-tls"></a>
 
-## GO-TLS. InsecureSkipVerify
+<a id="go-tls-insecureskipverify"></a>
 
-**Search:** scanner rule GO-TLS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-TLS` for details. Regex: InsecureSkipVerify:true and .InsecureSkipVerify=true assignments including newlines; ==, != and false do not match. VerifyConnection does not suppress review: inspect object type, reachability, callback and effective config. Comments/strings may match.
+## GO-TLS. Отключена проверка TLS-сертификата
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-TLS. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-TLS. Regex: InsecureSkipVerify: true и присваивание .InsecureSkipVerify = true, включая переносы строк; ==/!= и false не сигналят. Наличие VerifyConnection не снимает review: тип объекта, достижимость, callback и итоговую конфигурацию проверить вручную. Комментарии и строки могут совпадать.
+
+**Уязвимый вариант:**
 
 ~~~go
 cfg := tls.Config{InsecureSkipVerify: true}
 ~~~
 
-**Fix:** Use normal certificate/hostname verification and the required CA; review custom verification callbacks.
+**Исправление:** Вернуть штатную проверку сертификата и имени сервера; при необходимости настроить RootCAs/ServerName. Проверить пользовательские callbacks проверки.
 
 ~~~go
 cfg := tls.Config{InsecureSkipVerify: false}
 ~~~
 
-**Verification:** Correct peers work and invalid certificates fail.
+**Проверка:** Корректный сервер доступен; неверный сертификат отвергается.
 
-Dangerous configuration can be assigned after construction:
+Опасная настройка может появиться после создания конфига:
 
 ~~~go
 cfg := &tls.Config{}
 cfg.InsecureSkipVerify = true
 ~~~
 
-For an ordinary TLS client restore false and configure RootCAs/ServerName for the intended server. Test trusted certificates, unknown CAs, wrong names and expiry, preserving the legitimate internal CA.
+Для обычного TLS-клиента вернуть `false` и настроить `RootCAs`/`ServerName`
+для нужного сервера. Проверить доверенный сертификат, неизвестный CA,
+несовпадающее имя и истёкший срок, сохранив доступ к штатному внутреннему CA.
 
-With InsecureSkipVerify: true, an application may implement its own VerifyConnection validation. The flag can be justified only if that callback fully checks the required chain and name; a callback's mere presence proves nothing. The scanner does not analyze its body and retains the signal. Comparing cfg.InsecureSkipVerify == true does not change configuration and does not independently trigger GO-TLS. [Go: tls.Config](https://pkg.go.dev/crypto/tls#Config).
+При `InsecureSkipVerify: true` приложение может реализовать собственную
+проверку в `VerifyConnection`. Если она полноценно проверяет требуемую цепочку
+и имя, флаг может быть обоснован; наличие callback само по себе этого не
+доказывает. Сканер не анализирует его тело и сохраняет сигнал после такого
+исправления. Сравнение `cfg.InsecureSkipVerify == true` не изменяет настройку
+и отдельно не получает GO-TLS. [Go: tls.Config](https://pkg.go.dev/crypto/tls#Config).
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'InsecureSkipVerify|VerifyConnection|VerifyPeerCertificate|RootCAs|ServerName|TLSClientConfig' .
 ~~~
 
-Connect the configuration to the transport actually used; trace every assignment and callback error return, including resumed TLS sessions. Variable values and effective configuration need manual review. Regex can match comments/examples; a match does not establish execution.
+Связать конфигурацию с используемым transport, проследить все присваивания
+и возвраты ошибки в callback, включая возобновлённые TLS-сессии. Значение из
+переменной и эффективная конфигурация остаются ручной проверкой. Regex может
+совпасть с комментарием или текстовым примером; это не подтверждение выполнения.
 
 <a id="go-shell"></a>
 
-## GO-SHELL. Go exec.Command launches a shell
+<a id="go-shell-go-execcommand-launches-a-shell"></a>
 
-**Search:** scanner rule GO-SHELL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-SHELL` for details. Regex: any receiver.Command/CommandContext with literal shell and -c/-lc/-ec. Simple context expressions including r.Context() work; nested commas may hide a call. Inspect receiver type and command trust.
+## GO-SHELL. Go exec.Command запускает shell
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-SHELL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-SHELL. Regex: любой receiver.Command/CommandContext с буквальным shell и -c/-lc/-ec. Простой context expression, включая r.Context(), поддержан; вложенная запятая внутри context expression может скрыть вызов. Тип receiver и доверенность команды вручную.
+
+**Уязвимый вариант:**
 
 ~~~go
 cmd := exec.Command("sh", "-c", command)
 ~~~
 
-**Fix:** Use fixed executable plus argv. Pass stdin records without a shell and validate their separators.
+**Исправление:** Фиксированный executable + argv. Для утилиты, читающей запись со stdin, передать её без shell и проверить разделители формата.
 
 ~~~go
 cmd := exec.Command("/usr/bin/file", "--", filename)
 ~~~
 
-**Verification:** Metacharacters stay data; dangerous options/separators fail; supported arguments work.
+**Проверка:** Спецсимволы остаются данными, опасные опции/разделители отвергаются; штатные допустимые аргументы работают.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```go
 // Vulnerable: exec.Command starts a shell that parses input text.
 out, err := exec.Command("sh", "-c", "printf '%s' '"+message+"' | sha256sum").Output()
 ```
 
-**Patch for a content SHA-256 digest:**
+**Патч для SHA-256 содержимого:**
 
 ```go
 import (
@@ -246,56 +287,73 @@ func DigestText(message string) string {
 }
 ```
 
-Go strings contain bytes; this example preserves them unchanged. Validate UTF-8 separately if the protocol requires it. Preserve the external response format, which may differ from raw sha256sum output. This is not password hashing.
+Go-строка - байты; пример сохраняет их как есть. Если протокол требует именно
+UTF-8, его корректность проверить отдельно. Сохранить внешний формат ответа,
+который мог отличаться от сырого вывода `sha256sum`. Это не хеширование паролей.
 
-**Check:** Known digest, empty string, Unicode, quotes/newlines and no subprocess. If an external command is genuinely required, separate executable/arguments and bound runtime with context; the program may still interpret arguments as options.
+**Проверить:** известный digest, пустая строка, Unicode, кавычки и переводы строк;
+нет запуска процесса. Для действительно нужной внешней команды задавать executable
+и аргументы отдельно, ограничивать время через контекст; аргументы всё ещё может
+интерпретировать сама программа.
 
 </details>
 
-**A/D variant:** Shell hidden in an internal backend. **ENOWARS / replme, author write-up.** An internal handler interpolated a password into a shell command. **Patch:** Call a fixed utility without shell; pass data over stdin while validating its format delimiters. Do not arbitrarily restrict passwords to letters without checking the contract. **Test:** Spaces/permitted characters work; record delimiters fail. **Search:** GO-SHELL and the complete call chain.
+**Вариант A/D:** Shell спрятан во внутреннем backend. **ENOWARS / replme, автор.** Внутренний обработчик помещал пароль в shell-команду.
+**Патч:** вызывать фиксированную утилиту без shell; данные передавать stdin
+с проверкой разделителей её формата. Ограничивать пароль только буквами
+без проверки контракта нельзя. **Тест:** пробелы и допустимые символы работают,
+разделители записи отвергаются. **Поиск:** GO-SHELL; проследить весь вызов.
 
-[source/write-up 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [source/write-up 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [source/write-up 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [source/write-up 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [source/write-up 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [source/write-up 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
+[исходник/разбор 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [исходник/разбор 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [исходник/разбор 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [исходник/разбор 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [исходник/разбор 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [исходник/разбор 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
 
 <a id="go-crc"></a>
 
-## GO-CRC. CRC near an identifier or trust boundary
+<a id="go-crc-crc-near-an-identifier-or-trust-boundary"></a>
 
-**Search:** scanner rule GO-CRC. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-CRC` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-CRC. CRC используется как идентификатор/контроль доверия
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-CRC. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-CRC. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 resource := service.CRC.Calculate(username)
 ~~~
 
-**Fix:** CRC is not an ownership boundary. Use unique server-owned IDs plus authorization or HMAC for authenticity.
+**Исправление:** CRC не граница между пользователями. Для отображения ресурса - серверный уникальный ID/криптохеш + отдельная проверка владельца; для MAC - HMAC, не простой хеш.
 
 ~~~go
 resource := sha256.Sum256([]byte(username))
 ~~~
 
-**Verification:** Collisions cannot change ownership; old IDs have a migration path.
+**Проверка:** Разные пользователи не делят ресурс; коллизия не меняет владельца; есть миграция прежних ключей.
 
-**A/D variant:** CRC as the boundary between users' resources. **ENOWARS / replme, author and patch.** A name's CRC selected a container; collisions merged unrelated resources.
+**Вариант A/D:** CRC как граница между ресурсами пользователей. **ENOWARS / replme, автор + патч.** CRC имени выбирал контейнер;
+коллизия объединяла чужие ресурсы.
 
-**Patch:** Server-generated unique IDs or a cryptographic mapping, separate ownership checks and migration of existing resources. A cryptographic hash is not authorization. **Test:** Equal checksums for different names must not share a resource. **Search:** GO-CRC; PY-CRC covers the analogous Python risk.
+**Патч:** серверный уникальный ID либо криптографическое отображение, отдельная
+проверка владельца и миграция существующих ресурсов. Криптохеш не заменяет auth.
+**Тест:** одинаковый checksum двух имён не даёт общий ресурс.
+**Поиск:** GO-CRC; PY-CRC покрывает аналогичный риск в Python.
 
-[source/write-up 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [source/write-up 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [source/write-up 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [source/write-up 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [source/write-up 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [source/write-up 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
+[исходник/разбор 1](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/main.tex); [исходник/разбор 2](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/path-traversal.patch); [исходник/разбор 3](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/documentation/documentation/src/crc.patch); [исходник/разбор 4](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/util/encoding.go); [исходник/разбор 5](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/backend/controller/repl.go); [исходник/разбор 6](https://github.com/enowars/enowars8-service-replme/blob/3cdec50dd9a57f43f1c57f7b049319774a00e6c2/service/image/service/user.go).
 
 <a id="go-math-rand"></a>
 
-## GO-MATH-RAND. math/rand near a possible secret
+<a id="go-math-rand-mathrand-near-a-possible-secret"></a>
 
-**Search:** scanner rule GO-MATH-RAND. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-MATH-RAND` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-MATH-RAND. math/rand рядом с возможным секретом
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-MATH-RAND. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-MATH-RAND. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 import "math/rand"
 rand.Seed(time.Now().UnixMilli())
 ~~~
 
-**Fix:** Use crypto/rand and handle errors; alphabet shuffling/hidden seeds do not create a CSPRNG.
+**Исправление:** Токены/секреты генерировать crypto/rand с обработкой ошибок. Перестановка алфавита/скрытый seed не заменяет CSPRNG.
 
 ~~~go
 import "crypto/rand"
@@ -303,25 +361,32 @@ _, err := rand.Read(token)
 if err != nil { return err }
 ~~~
 
-**Verification:** Entropy/length suffice and failure never creates a predictable fallback.
+**Проверка:** Источник энтропии и длина достаточны; ошибка генератора не создаёт предсказуемый fallback.
 
-**A/D variant:** Go tokens seeded from time. **RuCTF / werk, author write-up.** math/rand and creation time constrained token unpredictability. **Patch:** crypto/rand, adequate length and error handling; permuting an alphabet does not fix a weak generator. **Test:** Token contract and generator failure without predictable fallback. **Search:** GO-MATH-RAND including import aliases; review custom PRNGs separately.
+**Вариант A/D:** Go-токен с seed от времени. **RuCTF / werk, автор.** Обычный math/rand и время создания ограничивали
+непредсказуемость токена.
+**Патч:** crypto/rand, достаточная длина и проверка ошибок; перестановка алфавита
+не устраняет слабость генератора. **Тест:** контракт токена и отказ генератора
+без предсказуемой замены. **Поиск:** GO-MATH-RAND, включая alias импорта;
+кастомный PRNG анализировать отдельно.
 
-[source/write-up 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/werk/README.md).
+[исходник/разбор 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/werk/README.md).
 
 <a id="go-readall-body"></a>
 
-## GO-READALL-BODY. ReadAll on a request body
+<a id="go-readall-body-readall-on-a-request-body"></a>
 
-**Search:** scanner rule GO-READALL-BODY. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-READALL-BODY` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-READALL-BODY. ReadAll тела запроса
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-READALL-BODY. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-READALL-BODY. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 body, err := io.ReadAll(r.Body)
 ~~~
 
-**Fix:** Limit the body before reading and handle excess size; the rule does not track earlier MaxBytesReader calls.
+**Исправление:** Ограничить тело до чтения, корректно обработать превышение лимита. Правило не отслеживает ранее установленный MaxBytesReader.
 
 ~~~go
 r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -329,249 +394,288 @@ body, err := io.ReadAll(r.Body)
 if err != nil { return } // map to an appropriate client error
 ~~~
 
-**Verification:** Test limit-1/limit/limit+1 and streams without Content-Length.
+**Проверка:** Лимит-1/лимит/лимит+1, stream без Content-Length; штатный максимальный документ работает.
 
 <a id="go-pprof"></a>
 
-## GO-PPROF. pprof registered on an HTTP mux
+<a id="go-pprof-pprof-registered-on-an-http-mux"></a>
 
-**Search:** scanner rule GO-PPROF. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-PPROF` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-PPROF. pprof регистрируется на HTTP mux
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-PPROF. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-PPROF. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 import _ "net/http/pprof"
 ~~~
 
-**Fix:** Do not expose DefaultServeMux debug handlers as the business API; separate muxes and authorize diagnostic endpoints.
+**Исправление:** Не публиковать DefaultServeMux с debug handlers как бизнес-API. Разделить mux и прикладную авторизацию диагностического endpoint.
 
 ~~~go
 // use a separate authenticated diagnostics mux when diagnostics is required
 ~~~
 
-**Verification:** Normal API works; anonymous clients cannot obtain profiles/heap. Import alone does not prove exposure.
+**Проверка:** Обычный API работает; аноним не получает профиль/heap. Импорт сам по себе не доказывает доступность.
 
-**Reference:** [primary source](https://pkg.go.dev/net/http/pprof).
+**Основание:** [первичный материал](https://pkg.go.dev/net/http/pprof).
 
 <a id="go-fileserver"></a>
 
-## GO-FILESERVER. FileServer publishes a file tree
+<a id="go-fileserver-fileserver-publishes-a-file-tree"></a>
 
-**Search:** scanner rule GO-FILESERVER. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-FILESERVER` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## GO-FILESERVER. FileServer публикует дерево файлов
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило GO-FILESERVER. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-FILESERVER. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~go
 http.Handle("/", http.FileServer(http.Dir(".")))
 ~~~
 
-**Fix:** Use a dedicated public root without secrets/databases; authorize private files separately and review symlinks/listing.
+**Исправление:** Отдельный public root без секретов/БД, права на приватные файлы вне static handler; проверить symlink и directory listing.
 
 ~~~go
 http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("./public"))))
 ~~~
 
-**Verification:** Assets work; .env, source, foreign files and outward symlinks are unavailable.
+**Проверка:** Assets доступны; .env/исходники/чужие файлы и ссылка наружу недоступны.
 
-**Reference:** [primary source](https://pkg.go.dev/net/http#FileServer).
+**Основание:** [первичный материал](https://pkg.go.dev/net/http#FileServer).
 
 <a id="go-auth-return"></a>
 
-## GO-AUTH-RETURN. Execution continues after http.Error
+<a id="go-auth-return-execution-continues-after-httperror"></a>
 
-**Search:** manual review; no separate scanner rule.
+## GO-AUTH-RETURN. После http.Error выполнение продолжается
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'http.Error|WriteHeader|StatusForbidden|StatusUnauthorized' .
 ~~~
 
-Trace execution after each denial, including deferred effects and goroutines.
+Пройти код после каждой ветви отказа, deferred effects и goroutines.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`http.Error(w, ..., 403)` writes a response but does not stop the handler; subsequent code reads or mutates data.
+http.Error(w, ..., 403) записывает ответ, но не прекращает handler; затем данные читаются/меняются.
 
-**Fix:** Explicit return before side effects; require a checked authorization result on every path, including helpers.
+**Исправление:** Явный return до побочного эффекта; auth-result обязателен на всех путях, включая helper.
 
-**Verification:** Denial does not mutate the database or append private response data; authorized requests work.
+**Проверка:** Отказ не меняет БД и не дописывает приватный body; свой запрос работает.
 
 <a id="go-json-fields"></a>
 
-## GO-JSON-FIELDS. JSON entities and ambiguous keys
+<a id="go-json-fields-json-entities-and-ambiguous-keys"></a>
 
-**Search:** manual review; no separate scanner rule.
+## GO-JSON-FIELDS. JSON в entity и неоднозначные ключи
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'json.NewDecoder|json.Unmarshal|Decode\(|DisallowUnknownFields' .
 ~~~
 
-Review exported entity fields, tags, duplicate keys and case variants; DisallowUnknownFields does not solve duplicates.
+Сверить exported поля entity, теги и повторные/разнорегистровые ключи; DisallowUnknownFields не решает дубли.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Decoding into the model accepts Owner/Role, or parsers choose different duplicate keys.
+Decode в модель принимает Owner/Role либо парсеры по-разному выбирают повторный ключ.
 
-**Fix:** Dedicated DTO, allowlisted fields, EOF/type validation; signed input requires an explicit duplicate-key/canonicalization policy.
+**Исправление:** Отдельный DTO, разрешённые поля, проверка EOF и типов; при подписи строгая политика дублей/канонизации.
 
-**Verification:** Extra authorization fields, second JSON documents, nulls, duplicate keys and ordinary payloads.
+**Проверка:** Лишнее auth-поле, второй JSON-документ, null и повторные ключи; штатный payload.
 
 <a id="go-race"></a>
 
-## GO-RACE. Shared map/slice state and check-then-use
+<a id="go-race-shared-mapslice-state-and-check-then-use"></a>
 
-**Search:** manual review; no separate scanner rule.
+## GO-RACE. Общие map/slice и check-then-use
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'map\[|sync.Mutex|RWMutex|go func|LoadOrStore|owner' .
 ~~~
 
-Identify the shared-state owner; a lock must cover the check and mutation, not only individual accesses.
+Определить владельца shared state; блокировка должна охватывать проверку и изменение, не отдельные обращения.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Two goroutines both pass balance/authorization checks and mutate state.
+Две goroutine проходят проверку баланса/прав и затем обе изменяют состояние.
 
-**Fix:** An atomic operation/critical section or database transaction; avoid global locks across slow I/O.
+**Исправление:** Атомарная операция/критическая секция либо транзакция БД; не удерживать глобальный lock на медленном I/O.
 
-**Verification:** Barrier-based invariant tests and race detector in an isolated environment. No race report does not prove the absence of logical races.
+**Проверка:** Barrier-тест инварианта и race detector на подготовленном стенде; отсутствие race-отчёта не доказывает отсутствие логической гонки.
 
 <a id="go-error-default"></a>
 
-## GO-ERROR-DEFAULT. Ignored errors produce a zero principal
+<a id="go-error-default-ignored-errors-produce-a-zero-principal"></a>
 
-**Search:** manual review; no separate scanner rule.
+## GO-ERROR-DEFAULT. Игнорирование ошибки даёт нулевого субъекта
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'ParseInt|Atoi|Unmarshal|Verify|Find|_, _|err' .
 ~~~
 
-Find ignored parse/auth/database errors; determine whether zero identifies a global/default object.
+Найти игнорируемые ошибки parse/auth/DB; проверить, не означает ли zero ID глобальный/default объект.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`id, _ := strconv.Atoi(input)` turns invalid input into zero with special privileges.
+id, _ := strconv.Atoi(input) превращает неправильный ввод в 0, который имеет особые права.
 
-**Fix:** Check errors and range before use; distinguish not-found from backend failure.
+**Исправление:** Проверять ошибку и допустимый диапазон до операции; различать not found и backend failure.
 
-**Verification:** Invalid IDs/database timeouts never authorize or expose another user's data; explicitly handle zero if it is valid by contract.
+**Проверка:** Неправильный ID/таймаут БД не авторизуют и не возвращают чужое; допустимый ноль по контракту обработан явно.
 
 <a id="go-ssrf"></a>
 
-## GO-SSRF. HTTP clients and redirects
+<a id="go-ssrf-http-clients-and-redirects"></a>
 
-**Search:** manual review; no separate scanner rule.
+## GO-SSRF. Go HTTP client и redirects
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'http.Get|Client.Do|NewRequest|CheckRedirect|DialContext' .
 ~~~
 
-Trace custom transports, redirect policies, DNS and connection reuse.
+Проследить custom transport, redirect policy, DNS и повторное использование соединения.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The URL is checked before Client.Do, but redirect/transport behavior reaches another destination.
+URL проверен до Client.Do, но redirect/transport уводит запрос к другому назначению.
 
-**Fix:** Fixed destinations or a unified URL/redirect/connection policy, timeouts and body limits. Do not prohibit legitimate private-network destinations without checking the contract.
+**Исправление:** Фиксированные назначения либо единая policy URL/redirect/соединения, timeouts и лимит body; не блокировать легитимную private сеть без контракта.
 
-**Verification:** Mock redirects/DNS/timeouts, normal upstream and oversized responses.
+**Проверка:** Mock redirect/DNS/timeout, обычный upstream, oversized response.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
 
 <a id="go-zip-path"></a>
 
-## GO-ZIP-PATH. filepath.Join does not enforce containment
+<a id="go-zip-path-filepathjoin-does-not-enforce-containment"></a>
 
-**Search:** manual review; no separate scanner rule.
+## GO-ZIP-PATH. filepath.Join не обеспечивает containment
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'archive/zip|archive/tar|filepath.Join|EvalSymlinks|MkdirAll' .
 ~~~
 
-Inspect entry/link names; compare the cleaned path with the root and the actual open operation.
+Найти имена entries и ссылок; сравнить очищенный путь с root и фактическую операцию открытия.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`Join(root, entry)` writes without checking escapes or symlinks.
+Join(root, entry) используется для записи без проверки выхода/ссылок.
 
-**Fix:** Validate relative paths and entry types, use safe directory-relative opening with a symlink policy, limits and cleanup.
+**Исправление:** Проверить relative path и тип entry, безопасное открытие внутри каталога с политикой symlink, лимиты и уборка.
 
-**Verification:** Valid nested paths, escapes, link entries and parent replacement between check and write.
+**Проверка:** Вложенный допустимый путь, выход наружу, link entry и изменение родителя между проверкой и записью.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
 
 <a id="go-tls-min"></a>
 
-## GO-TLS-MIN. Obsolete minimum TLS version
+<a id="go-tls-min-obsolete-minimum-tls-version"></a>
 
-**Search:** scanner rule GO-TLS-MIN. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-TLS-MIN` for details. Regex: MinVersion:tls.VersionSSL30/TLS10/TLS11 and assignments, including newlines; ==, !=, TLS12/TLS13 and 0 do not signal. SSL30 is obsolete and unsupported by modern Go. Review object/effective config/version; numbers, aliases, variables and external listener settings are not evaluated.
+## GO-TLS-MIN. Явно разрешён устаревший TLS
 
-**Vulnerable example:** The setting lowers the minimum of the TLS client/server actually using it, if that runtime version/mode supports the old protocols.
+**Поиск:** скрипт, правило GO-TLS-MIN. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-TLS-MIN. Regex: MinVersion:tls.VersionSSL30/TLS10/TLS11 и присваивание .MinVersion = этим константам, включая переносы строк; ==/!=, TLS12/TLS13 и 0 не сигналят. VersionSSL30 - устаревшая настройка, современный Go не поддерживает SSLv3. Тип объекта, итоговую конфигурацию и версию Go проверять вручную; числовые версии, import aliases, переменные и настройки listener вне Go не вычисляются.
+
+**Уязвимый вариант:** Настройка понижает минимум для используемого TLS-клиента
+или сервера, если версия и режим runtime допускают эти старые протоколы.
 
 ~~~go
 cfg := &tls.Config{}
 cfg.MinVersion = tls.VersionTLS10
 ~~~
 
-**Fix:** Choose TLS 1.2/1.3 minimum compatible with checker/peers while retaining certificate checks.
+**Исправление:** Выбрать минимум TLS 1.2/1.3 по совместимости checker и peer;
+сохранить проверку сертификата. Настроить Config до передачи TLS-функции:
+после начала использования его менять нельзя.
 
 ~~~go
 cfg := &tls.Config{}
 cfg.MinVersion = tls.VersionTLS12
 ~~~
 
-**Verification:** Normal peers connect; versions below the chosen minimum fail.
+**Проверка:** Штатные peers соединяются; TLS ниже выбранного минимума отвергнут.
+Проверить итоговый Config, обработку ошибки соединения и старых клиентов до
+выкладки: поднятие минимума может нарушить совместимость.
 
-Both MinVersion: tls.VersionTLS10 and cfg.MinVersion = tls.VersionTLS10 need review. Comparisons ==/!= do not change settings and do not trigger this signal. TLS12/TLS13 and 0 do not trigger it either; 0 selects the runtime default, not a verified security policy.
+Поле литерала `MinVersion: tls.VersionTLS10` и отдельное присваивание
+`cfg.MinVersion = tls.VersionTLS10` требуют одинакового просмотра.
+Сравнения `==`/`!=` не меняют настройку и не получают этот сигнал.
+`TLS12`/`TLS13` и `0` также не сигналят; `0` означает default конкретного runtime,
+а не подтверждённую политику безопасности.
 
-VersionSSL30 remains a legacy-configuration signal: the constant's existence does not mean modern Go supports SSLv3. Runtime version/mode and later overrides affect actual behavior. [Go: tls.Config](https://pkg.go.dev/crypto/tls#Config), [Go 1.24 MinVersion contract](https://github.com/golang/go/blob/go1.24.0/src/crypto/tls/common.go#L756).
+`VersionSSL30` остаётся сигналом устаревшей настройки: наличие константы
+не означает, что современный Go поддерживает SSLv3.
+Версия, режим runtime и последующие переопределения влияют на реальное поведение.
+[Go: tls.Config](https://pkg.go.dev/crypto/tls#Config),
+[контракт MinVersion в Go 1.24](https://github.com/golang/go/blob/go1.24.0/src/crypto/tls/common.go#L756).
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'MinVersion|MaxVersion|TLSClientConfig|GetConfigForClient|crypto/tls|GODEBUG|GOFIPS140' .
 ~~~
 
-Connect the object to the real TLS client/listener; review mutations, configuration callbacks, import aliases, numeric constants and environment-derived values. Regex establishes neither type nor reachability and may match comments. Semantics were reviewed against primary sources; this catalog review did not execute Go or TLS connections.
+Связать объект с реальным TLS-клиентом/listener и проверить все изменения,
+возвращаемые callbacks конфигурации, aliases импорта, числовые константы и
+значения из окружения. Regex не устанавливает тип объекта или достижимость
+настройки и может совпасть с комментарием. Семантика сверена по первичным
+исходникам; Go runtime и TLS-соединения в этой проверке не запускались.
 
 <a id="go-jwt-unverified"></a>
 
-## GO-JWT-UNVERIFIED. JWT without signature or claims verification
+<a id="go-jwt-unverified-jwt-without-signature-or-claims-verification"></a>
 
-**Search:** scanner rule GO-JWT-UNVERIFIED. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain GO-JWT-UNVERIFIED` for details. Regex: ParseUnverified and WithoutClaimsValidation; does not prove authentication uses the result. The example targets golang-jwt/jwt/v5.
+## GO-JWT-UNVERIFIED. JWT без подписи или проверки claims
 
-**Vulnerable example:** Parsed does not mean verified; errors or disabled validation must never authorize a JWT.
+**Поиск:** скрипт, правило GO-JWT-UNVERIFIED. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain GO-JWT-UNVERIFIED. Regex: ParseUnverified и WithoutClaimsValidation; не доказывает использование результата для auth. Пример относится к golang-jwt/jwt/v5.
+
+**Уязвимый вариант:** Разобранный токен не равен проверенному; ошибка или отключённая валидация не должны вести к авторизации.
 
 ~~~go
 token, _, err := parser.ParseUnverified(raw, &claims)
 ~~~
 
-**Fix:** Use a validating API with trusted keyfunc, algorithms and claims; check err before using token/claims.
+**Исправление:** Использовать валидирующий API с доверенным keyfunc, алгоритмами и claims; проверять err до использования token/claims.
 
 ~~~go
 token, err := jwt.ParseWithClaims(raw, &claims, trustedKeyFunc, jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer("auth"), jwt.WithAudience("notes"), jwt.WithExpirationRequired())
 if err != nil || !token.Valid { return ErrUnauthorized }
 ~~~
 
-**Verification:** Signature/expiry/audience checks work, error nil tokens do not panic and valid tokens pass.
+**Проверка:** Подпись/срок/адресат проверяются; nil token при ошибке не вызывает panic; штатный токен принимается.
 
-Primary documentation: [reference 1](https://pkg.go.dev/github.com/golang-jwt/jwt/v5).
+Первичная документация: [документация 1](https://pkg.go.dev/github.com/golang-jwt/jwt/v5).
 
 <a id="go-upload-path"></a>
 
-## GO-UPLOAD-PATH. Multipart filename used directly in a joined path
+<a id="go-upload-path-multipart-filename-used-directly-in-a-joined-path"></a>
 
-**Search:** scanner rule GO-UPLOAD-PATH. Use `--explain GO-UPLOAD-PATH` for the exact detector contract. Regex with lexical exclusions: filepath.Join with a simple first argument and a direct header/fileHeader/file.Filename second argument. The MIME parser may normalize filenames; the rule does not prove traversal, imported types or missing earlier validation.
+## GO-UPLOAD-PATH. Имя multipart-файла напрямую включается в путь
 
-**Vulnerable example:**
+**Поиск:** правило сканера GO-UPLOAD-PATH. Точный контракт детектора: `--explain GO-UPLOAD-PATH`. Regex с лексическими исключениями: filepath.Join с простым первым аргументом и прямым header/fileHeader/file.Filename во втором. MIME-парсер может нормализовать имя файла; правило не доказывает traversal, тип импортированного объекта или отсутствие предшествующей валидации.
+
+**Уязвимый вариант:**
 
 ~~~go
 path := filepath.Join(root, header.Filename)
 ~~~
 
-**Fix:** Choose a non-overwriting server-side storage name outside executable/public roots; authorize downloads and enforce upload size/type.
+**Исправление:** Выбирайте серверное имя хранения без перезаписи существующих файлов, вне исполняемых и публичных корней; проверяйте права на скачивание, размер и тип загрузки.
 
 ~~~go
 path := filepath.Join(root, serverGeneratedID)
 ~~~
 
-**Verification:** Alternate separators, traversal, collisions and other-owner requests cannot change the chosen storage path; ordinary uploads work.
+**Проверка:** Другие разделители, traversal, коллизии и запросы от другого владельца не меняют выбранный путь хранения; обычные загрузки работают.
 
-[Primary reference 1](https://pkg.go.dev/mime/multipart#FileHeader)
+[Первичный источник 1](https://pkg.go.dev/mime/multipart#FileHeader)

@@ -1,0 +1,3 @@
+org.springframework.boot.diagnostics.FailureAnalyzer=\
+  ru.serega6531.packmate.exception.analyzer.PcapFileNotFoundFailureAnalyzer,\
+  ru.serega6531.packmate.exception.analyzer.PcapInterfaceNotFoundFailureAnalyzer

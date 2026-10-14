@@ -1,4 +1,4 @@
-"""Redis ACL token-order checks on inert config text; Redis is never run."""
+"""Порядок токенов Redis ACL проверяется по тексту без запуска Redis."""
 import importlib.util
 import json
 from pathlib import Path
@@ -88,8 +88,7 @@ class RedisAclTests(unittest.TestCase):
         self.assertTrue(self.signal("user service on nopass ~>password &>channel"))
         self.assertFalse(self.signal("user service off nopass ~on"))
         self.assertFalse(self.signal("user service nopass"))
-        # The scanner intentionally does not merge multiple declarations into
-        # an effective ACL, even when they name the same user.
+        # Сканер не объединяет объявления в итоговую ACL даже для одного пользователя.
         self.assertFalse(self.signal("user service on\nuser service nopass"))
 
     def test_non_ascii_or_vertical_whitespace_is_not_trimmed_into_a_flag(self):

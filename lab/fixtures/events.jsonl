@@ -1,4 +1,0 @@
-{"level":"INFO","status":200,"message":"health check"}
-{"level":"INFO","status":200,"message":"version check"}
-{"level":"WARNING","status":404,"message":"unknown route"}
-{"level":"ERROR","status":503,"message":"synthetic unavailable response"}

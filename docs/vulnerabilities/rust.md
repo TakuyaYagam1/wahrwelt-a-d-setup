@@ -1,243 +1,267 @@
-# Rust: find, fix and verify
+<a id="rust-find-fix-and-verify"></a>
 
-English | [Русский](rust-RU.md)
+# Rust: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-18 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+18 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [RUST-UNSAFE-CONVERSION — Rust unchecked/raw conversion](#rust-unsafe-conversion)
-- [RUST-SQL-FORMAT — Rust SQL using format!](#rust-sql-format)
-- [RUST-STATIC-MUT — Shared mutable Rust state](#rust-static-mut)
-- [RUST-AUTHORIZATION — A typed ID does not authorize its owner](#rust-authorization)
-- [RUST-SERDE-FIELDS — serde entities accept administrative fields](#rust-serde-fields)
-- [RUST-PANIC-INPUT — unwrap and byte slicing on request input](#rust-panic-input)
-- [RUST-COMMAND — Shell launched from Rust](#rust-command)
-- [RUST-LOCK-AWAIT — Holding locks across await](#rust-lock-await)
-- [RUST-UNBOUNDED-READ — Potentially unbounded Rust stream read](#rust-unbounded-read)
-- [RUST-FFI-OWNERSHIP — FFI retains a pointer after drop](#rust-ffi-ownership)
-- [RUST-SSRF — reqwest redirects and URL policies](#rust-ssrf)
-- [RUST-NUMERIC-CAST — as truncates a size value](#rust-numeric-cast)
-- [RUST-DISTRIBUTED-CAS — Logical races in distributed state](#rust-distributed-cas)
-- [RUST-FFI-LENGTH — Passing declared length instead of Rust buffer length to C](#rust-ffi-length)
-- [RUST-PATH-PREFIX — Prefix validation and filesystem fallback](#rust-path-prefix)
-- [RUST-FFI-ABI — C and Rust extern return types disagree](#rust-ffi-abi)
-- [RUST-TLS — Rust HTTP accepts invalid certificates](#rust-tls)
-- [RUST-JWT-VALIDATION — Rust JWT checks disabled](#rust-jwt-validation)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [RUST-UNSAFE-CONVERSION - Непроверенные преобразования и сырые указатели Rust](#rust-unsafe-conversion)
+- [RUST-SQL-FORMAT - SQL Rust через format!](#rust-sql-format)
+- [RUST-STATIC-MUT - Общее изменяемое состояние Rust](#rust-static-mut)
+- [RUST-AUTHORIZATION - Типизированный ID не проверяет owner](#rust-authorization)
+- [RUST-SERDE-FIELDS - serde entity принимает служебные поля](#rust-serde-fields)
+- [RUST-PANIC-INPUT - unwrap и byte slicing на входе](#rust-panic-input)
+- [RUST-COMMAND - Command запускает интерпретатор/опасные опции](#rust-command)
+- [RUST-LOCK-AWAIT - Блокировка удерживается через await](#rust-lock-await)
+- [RUST-UNBOUNDED-READ - Потенциально неограниченное чтение потока Rust](#rust-unbounded-read)
+- [RUST-FFI-OWNERSHIP - FFI удерживает pointer после drop](#rust-ffi-ownership)
+- [RUST-SSRF - reqwest redirects и политики URL](#rust-ssrf)
+- [RUST-NUMERIC-CAST - as обрезает значение размера](#rust-numeric-cast)
+- [RUST-DISTRIBUTED-CAS - Логическая гонка в распределённом состоянии](#rust-distributed-cas)
+- [RUST-FFI-LENGTH - В C передаётся объявленная длина вместо длины Rust-буфера](#rust-ffi-length)
+- [RUST-PATH-PREFIX - Валидация префикса имени и файловый fallback](#rust-path-prefix)
+- [RUST-FFI-ABI - Несовпадение возвращаемого типа C и Rust extern](#rust-ffi-abi)
+- [RUST-TLS - Rust HTTP принимает недействительный сертификат](#rust-tls)
+- [RUST-JWT-VALIDATION - Rust JWT: отключены обязательные проверки](#rust-jwt-validation)
 
 <a id="rust-unsafe-conversion"></a>
 
-## RUST-UNSAFE-CONVERSION. Rust unchecked/raw conversion
+<a id="rust-unsafe-conversion-rust-uncheckedraw-conversion"></a>
 
-**Search:** scanner rule RUST-UNSAFE-CONVERSION. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUST-UNSAFE-CONVERSION` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUST-UNSAFE-CONVERSION. Непроверенные преобразования и сырые указатели Rust
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUST-UNSAFE-CONVERSION. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUST-UNSAFE-CONVERSION. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~rust
 let text = unsafe { std::str::from_utf8_unchecked(data) };
 ~~~
 
-**Fix:** Prefer checked APIs; necessary unsafe needs length, alignment, lifetime, initialization and aliasing proofs. Do not remove it blindly.
+**Исправление:** Использовать checked API; для необходимого unsafe доказать длину, выравнивание, lifetime, инициализацию и уникальность ссылок. Не убирать unsafe без понимания инвариантов.
 
 ~~~rust
 let text = std::str::from_utf8(data)?;
 ~~~
 
-**Verification:** Test invalid UTF-8/length/index and EOF; use Miri/sanitizers where prepared.
+**Проверка:** Неверный UTF-8/длина/индекс, EOF; по возможности Miri/sanitizers в подготовленной среде.
 
 <a id="rust-sql-format"></a>
 
-## RUST-SQL-FORMAT. Rust SQL using format!
+<a id="rust-sql-format-rust-sql-using-format"></a>
 
-**Search:** scanner rule RUST-SQL-FORMAT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUST-SQL-FORMAT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUST-SQL-FORMAT. SQL Rust через format!
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUST-SQL-FORMAT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUST-SQL-FORMAT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~rust
 sqlx::query(&format!("SELECT * FROM notes WHERE name={}", name));
 ~~~
 
-**Fix:** Use driver binding and allowlisted identifiers; placeholder syntax is database-specific.
+**Исправление:** Параметры поддержанного драйвера/ORM, identifiers из allowlist; тип SQL placeholder зависит от БД.
 
 ~~~rust
 sqlx::query("SELECT * FROM notes WHERE name=$1").bind(name);
 ~~~
 
-**Verification:** Quotes remain data and ownership predicates work.
+**Проверка:** Кавычки - данные; условие владельца сохраняется.
 
 <a id="rust-static-mut"></a>
 
-## RUST-STATIC-MUT. Shared mutable Rust state
+<a id="rust-static-mut-shared-mutable-rust-state"></a>
 
-**Search:** scanner rule RUST-STATIC-MUT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUST-STATIC-MUT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUST-STATIC-MUT. Общее изменяемое состояние Rust
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUST-STATIC-MUT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUST-STATIC-MUT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~rust
 static mut CURRENT_USER: u64 = 0;
 ~~~
 
-**Fix:** Use ownership or synchronized primitives with clear invariants; review all unsafe accesses and cross-request state.
+**Исправление:** Mutex/atomic для настоящего shared state; principal обычно должен быть per-request, один Mutex не исправит смешение пользователей.
 
 ~~~rust
 static CURRENT_USER: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
 ~~~
 
-**Verification:** Concurrent requests do not race or leak another user's data; ordinary operations work.
+**Проверка:** Конкурентные запросы не делят principal; нет data race и неправильного lock scope.
 
-**Reference:** [primary source](https://doc.rust-lang.org/reference/items/static-items.html).
+**Основание:** [первичный материал](https://doc.rust-lang.org/reference/items/static-items.html).
 
 <a id="rust-authorization"></a>
 
-## RUST-AUTHORIZATION. A typed ID does not authorize its owner
+<a id="rust-authorization-a-typed-id-does-not-authorize-its-owner"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-AUTHORIZATION. Типизированный ID не проверяет owner
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Path<|State<|Extension<|find_by_id|owner|tenant' .
 ~~~
 
-Trace extractors to SELECT/UPDATE and session verification; a compile-time type does not bind the ID to the caller.
+От extractor пройти до SELECT/UPDATE и проверки сессии; compile-time тип не связывает ID с пользователем.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A deserialized NoteId loads another user's record.
+Десериализованный NoteId используется для загрузки чужой записи.
 
-**Fix:** Query by ID plus server-derived owner/policy; check tenant boundaries for nested resources and jobs.
+**Исправление:** Запрос по ID и серверному owner/policy; проверка tenant у вложенных объектов и задач.
 
-**Verification:** Owner, other user, anonymous caller, cross-tenant access, lists and exports.
+**Проверка:** Своё/чужое/аноним, разные tenant и список/экспорт.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
 
 <a id="rust-serde-fields"></a>
 
-## RUST-SERDE-FIELDS. serde entities accept administrative fields
+<a id="rust-serde-fields-serde-entities-accept-administrative-fields"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-SERDE-FIELDS. serde entity принимает служебные поля
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Deserialize|flatten|default|deny_unknown_fields|serde' .
 ~~~
 
-Compare request DTOs/entities, role defaults and flatten; deny_unknown_fields has compatibility limitations with flatten.
+Сверить DTO/entity, default role и flatten; deny_unknown_fields имеет ограничения совместимости с flatten.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The client supplies owner/admin, or a missing field's default grants privileges.
+Клиент присылает owner/admin, default создаёт привилегию при отсутствующем поле.
 
-**Fix:** A separate allowlisted DTO, explicit validation and server-derived authorization fields; a bool type is not a permission check.
+**Исправление:** Отдельный DTO с разрешёнными полями, явная валидация и серверные auth-поля; не полагаться на тип bool как проверку полномочий.
 
-**Verification:** Extra/missing fields, nulls, nested objects and normal payloads.
+**Проверка:** Лишнее/отсутствующее поле, null, вложенный объект и обычный payload.
 
 <a id="rust-panic-input"></a>
 
-## RUST-PANIC-INPUT. unwrap and byte slicing on request input
+<a id="rust-panic-input-unwrap-and-byte-slicing-on-request-input"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-PANIC-INPUT. unwrap и byte slicing на входе
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'unwrap\(|expect\(|\[[0-9]+\.\.|parse::<|from_utf8' .
 ~~~
 
-Review Result/Option handling and UTF-8 boundaries; determine whether panic terminates a task, worker or process.
+Сверить Result/Option и UTF-8 границы; определить, падает task, worker или процесс при panic.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`parse().unwrap()` or `&name[..32]` panics on malformed, short or multibyte input.
+parse().unwrap() либо &name[..32] паникует на неправильном/коротком/многобайтовом вводе.
 
-**Fix:** Controlled errors, checked get/ranges and size bounds; do not conceal every failure with an empty default.
+**Исправление:** Вернуть контролируемую ошибку, checked get/range и ограничение размера; не скрывать все ошибки пустым default.
 
-**Verification:** Invalid UTF-8/numbers, short strings, multibyte boundaries and normal requests.
+**Проверка:** Некорректный UTF-8/число, короткая строка, многобайтовая граница и штатный запрос.
 
 <a id="rust-command"></a>
 
-## RUST-COMMAND. Shell launched from Rust
+<a id="rust-command-shell-launched-from-rust"></a>
 
-**Search:** scanner rule RUST-COMMAND. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUST-COMMAND` for details. Regex: Command::new with literal sh/bash/dash/zsh/cmd/powershell/pwsh. A command may be trusted; review -c, variable executables and .args.
+## RUST-COMMAND. Command запускает интерпретатор/опасные опции
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** скрипт, правило RUST-COMMAND. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUST-COMMAND. Regex: Command::new с буквальным sh/bash/dash/zsh/cmd/powershell/pwsh. Команда может быть доверенной; arg -c, переменные executable и .args проверять вручную.
+
+Дополнительный ручной поиск для непокрытых форм:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Command::new|\.arg\(|\.args\(|sh|cmd.exe' .
 ~~~
 
-Review the executable, every argument, environment and cwd; separate argv do not disable a program's dangerous options.
+Сверить executable, каждый argv, окружение/cwd; отдельные аргументы не выключают опции программы.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`Command::new("sh").arg("-c").arg(input)` gives a shell client-controlled text.
+Command::new("sh").arg("-c").arg(input) запускает shell с клиентским текстом.
 
-**Fix:** Use a fixed executable, separate arguments, allowlisted options and bounded time/output.
+**Исправление:** Библиотечный API или фиксированный executable/argv и политика опций/путей, bounded output/time.
 
-**Verification:** Metacharacters stay data; dangerous options cannot change behavior.
+**Проверка:** Кавычки/ведущий дефис остаются данными либо отклоняются; штатная операция совместима.
 
-**Scanner example before:**
+
+**Сигнал сканера - пример до:**
 
 ~~~rust
 Command::new("sh").arg("-c").arg(command).output()?;
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~rust
 Command::new("/usr/bin/file").arg("--").arg(validated_name).output()?;
 ~~~
 
-Primary documentation: [reference 1](https://doc.rust-lang.org/std/process/struct.Command.html).
+Первичная документация: [документация 1](https://doc.rust-lang.org/std/process/struct.Command.html).
 
 <a id="rust-lock-await"></a>
 
-## RUST-LOCK-AWAIT. Holding locks across await
+<a id="rust-lock-await-holding-locks-across-await"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-LOCK-AWAIT. Блокировка удерживается через await
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'lock\(|\.await|Mutex|RwLock|DashMap' .
 ~~~
 
-Review guard scope, reentrancy and the ordering of multiple locks.
+Проверить область guard, повторный вход и порядок нескольких locks.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A request holds a lock during I/O while another path waits on a dependent resource, causing deadlock or exhaustion.
+Запрос держит lock во время I/O, второй путь ждёт ресурс и создаёт deadlock/истощение.
 
-**Fix:** Minimize critical sections; use snapshots/versions with a repeated atomic check. Do not release a lock between authorization and mutation without equivalent protection.
+**Исправление:** Минимальная критическая секция, снимок/версия и повторная атомарная проверка; не отпускать lock между auth и mutation без защиты.
 
-**Verification:** Barrier-controlled concurrent requests, cancellation and slow upstreams do not block the whole application.
+**Проверка:** Два запроса с barrier, cancellation и медленный upstream не блокируют всё приложение.
 
 <a id="rust-unbounded-read"></a>
 
-## RUST-UNBOUNDED-READ. Potentially unbounded Rust stream read
+<a id="rust-unbounded-read-potentially-unbounded-rust-stream-read"></a>
 
-**Search:** scanner rule RUST-UNBOUNDED-READ. Regex with lexical exclusions: stream/socket/request/reader.read_to_end/read_to_string. Receiver names are hints, not types; an already bounded receiver may match and other names/wrappers may be missed.
+## RUST-UNBOUNDED-READ. Потенциально неограниченное чтение потока Rust
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** правило сканера RUST-UNBOUNDED-READ. Точный контракт детектора: `--explain RUST-UNBOUNDED-READ`. Regex с лексическими исключениями: stream/socket/request/reader.read_to_end/read_to_string. Имена получателя - подсказки, а не типы; уже ограниченный поток может дать совпадение, другие имена и wrappers могут быть пропущены.
+
+Дополнительный ручной поиск форм, которые не покрывает автоматическое правило:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'read_to_end|read_to_string|read_line|collect\(|to_bytes' .
 ~~~
 
-Trace bounds on bytes actually read and time spent, including chunked streams.
+Проследите ограничения фактически прочитанных байтов и затраченного времени, в том числе для chunked-потоков.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A client-controlled stream accumulates in memory until EOF.
+Управляемый клиентом поток накапливается в памяти до EOF.
 
-**Fix:** Bound reads, detect limit+1 and enforce an appropriate timeout; Read::take alone silently stops at its limit.
+**Исправление:** Ограничьте чтение, обнаруживайте limit+1 и задайте подходящий timeout; Read::take сам по себе молча останавливается на лимите.
 
-**Verification:** Test EOF, limit-1, limit, limit+1 and a slow never-ending source; valid maximum documents work.
+**Проверка:** Проверьте EOF, limit-1, limit, limit+1 и медленный бесконечный источник; допустимые документы максимального размера должны обрабатываться.
 
 
-**Scanner example before:**
+**Пример для сканера до исправления:**
 
 ~~~rust
 stream.read_to_end(&mut payload)?;
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~rust
 let mut bounded = stream.take(MAX_BYTES + 1);
@@ -245,205 +269,235 @@ bounded.read_to_end(&mut payload)?;
 if payload.len() as u64 > MAX_BYTES { return Err(too_large()); }
 ~~~
 
-
 <a id="rust-ffi-ownership"></a>
 
-## RUST-FFI-OWNERSHIP. FFI retains a pointer after drop
+<a id="rust-ffi-ownership-ffi-retains-a-pointer-after-drop"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-FFI-OWNERSHIP. FFI удерживает pointer после drop
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'CString|into_raw|from_raw|as_ptr|extern|free' .
 ~~~
 
-Compare lifetimes, allocators and both sides' pointer-retention contracts.
+Сравнить lifetime, allocator и контракт удержания pointer обеими сторонами.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-C retains as_ptr from a temporary Rust object, or C free releases memory belonging to another allocator.
+C сохраняет as_ptr временного Rust-объекта; C free освобождает allocation другого allocator.
 
-**Fix:** Explicit ownership transfer with a matching deallocator; keep owners alive through callbacks, use FFI-safe types and handle panic boundaries.
+**Исправление:** Явная передача владения и парная функция освобождения; keep-alive до callback, FFI-safe типы и обработка panic boundary.
 
-**Verification:** Delayed callbacks, duplicate frees, C-side errors and normal teardown.
+**Проверка:** Отложенный callback, повторное освобождение, ошибка C и штатный teardown.
 
-**Reference:** [primary source](https://doc.rust-lang.org/nomicon/ffi.html).
+**Основание:** [первичный материал](https://doc.rust-lang.org/nomicon/ffi.html).
 
 <a id="rust-ssrf"></a>
 
-## RUST-SSRF. reqwest redirects and URL policies
+<a id="rust-ssrf-reqwest-redirects-and-url-policies"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-SSRF. reqwest redirects и политики URL
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'reqwest|Client::builder|redirect|Url::parse|resolve' .
 ~~~
 
-Review URL parsing, redirect policy and transport DNS; a Url value proves parsing, not permission.
+Сверить URL, redirect policy и transport DNS; тип Url означает только успешный разбор.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An initially permitted URL redirects into a different trust zone.
+Разрешённый первый URL перенаправляет к другому trust zone.
 
-**Fix:** A server-side destination map or destination policy on every redirect and actual connection, with limits.
+**Исправление:** Серверная карта или policy назначения на каждом переходе и реальном соединении; лимиты.
 
-**Verification:** Mock DNS/redirects/timeouts, normal upstream access and prohibited schemes.
+**Проверка:** Mock DNS/redirect/timeout, обычный upstream и запрет недопустимых схем.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
 
 <a id="rust-numeric-cast"></a>
 
-## RUST-NUMERIC-CAST. as truncates a size value
+<a id="rust-numeric-cast-as-truncates-a-size-value"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-NUMERIC-CAST. as обрезает значение размера
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e ' as u8| as u16| as u32| as usize|wrapping_|unchecked_' .
 ~~~
 
-Check source range and destination type before allocation, indexing or database lookup.
+Сверить исходный диапазон и целевой тип до allocation/index/DB ID.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A wide integer is truncated by as, making distinct IDs/sizes identical.
+Широкое число обрезается через as, разные ID/размеры становятся одним.
 
-**Fix:** TryFrom, checked arithmetic and protocol bounds; reject negative values before unsigned conversion.
+**Исправление:** TryFrom/checked arithmetic и ограничения протокола; отрицательные значения отвергать до unsigned.
 
-**Verification:** Maximum, maximum+1, negative and normal values under release/debug behavior.
+**Проверка:** Максимум, максимум+1, отрицательное и штатное значение, release/debug поведение.
 
 <a id="rust-distributed-cas"></a>
 
-## RUST-DISTRIBUTED-CAS. Logical races in distributed state
+<a id="rust-distributed-cas-logical-races-in-distributed-state"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-DISTRIBUTED-CAS. Логическая гонка в распределённом состоянии
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'etcd|txn|compare|round|version' .
 ~~~
 
-Compare read/write revisions across workers; a process-local Mutex does not protect a remote transaction.
+Сравнить revision при чтении и записи между workers; process-local Mutex не защищает удалённую транзакцию.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**RuCTF / rustest, author write-up.** Multiple requests checked the same round version and independently recorded a result.
+**RuCTF / rustest, автор.** Несколько запросов проходили проверку одной версии
+раунда и независимо записывали результат.
 
-**Fix:** Storage transactions/CAS on the version and atomic consumption of one-use state. A single process's Mutex is insufficient across workers.
+**Исправление:** транзакция хранилища/CAS по версии и атомарное потребление одноразового
+состояния. Mutex одного процесса недостаточен при нескольких workers.
 
-**Verification:** Parallel answers produce exactly one state transition; retries never score twice.
+**Проверка:** параллельные ответы дают ровно один переход; retries не начисляют
+результат дважды.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/rustest/README.md).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/rustest/README.md).
 
-**Reference:** [primary source](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/rustest/README.md).
+**Основание:** [первичный материал](https://github.com/HackerDom/ructf-2023/blob/0cc333e44f2ba6908ff6c5d613146e3b00173315/writeups/rustest/README.md).
 
 <a id="rust-ffi-length"></a>
 
-## RUST-FFI-LENGTH. Passing declared length instead of Rust buffer length to C
+<a id="rust-ffi-length-passing-declared-length-instead-of-rust-buffer-length-to-c"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-FFI-LENGTH. В C передаётся объявленная длина вместо длины Rust-буфера
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'extern|as_ptr|as_mut_ptr|size_t|memcpy' .
 ~~~
 
-Compare pointer/length pairs on both sides: the actual allocated slice length, not the client's claim.
+Сопоставить pointer и length на Rust/C сторонах: длина выделенного среза, не объявленная клиентом.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**DEF CON / bisbee, source.** FFI store_data receives decoded_data.as_ptr() and an independently selected block_size; C copies size bytes.
+**DEF CON / bisbee, код.** FFI store_data получает decoded_data.as_ptr()
+и независимо выбранный block_size; C копирует size байт.
 
-**Fix:** Check declared size against the actual slice and limit; pass the validated buffer's length.
+**Исправление:** проверить заявленный размер против реального среза и лимита,
+передавать длину проверенного буфера.
 
-**Verification:** Smaller, equal and larger sizes, decoding failures and empty input.
+**Проверка:** размер меньше/равен/больше,
+ошибка декодирования, пустой ввод.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [source/write-up 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [source/write-up 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [source/write-up 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [source/write-up 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [source/write-up 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [исходник/разбор 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [исходник/разбор 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [исходник/разбор 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [исходник/разбор 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [исходник/разбор 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
 
-**Reference:** [primary source](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
+**Основание:** [первичный материал](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
 
-**A/D variant:** In FlagDrive (ENOWARS10), capacity was calculated over a whole structure including an administrative flag, although data belonged only in the token array. Use the subarray's actual length/capacity, remove invalid reinterpretation and retain separate ownership checks. Test maximum token length and maximum+1 without changing adjacent authorization state. [Author write-up](https://github.com/enowars/enowars10-service-flagdrive/blob/d1575098fe2c516460136bb5fba11d9a1c4af3f7/documentation/FLAGSTORE_1.md). This is a service-specific memory-boundary/conversion defect, not a claim of a compiler defect.
+
+**Вариант A/D:** в FlagDrive (ENOWARS10) ёмкость контейнера считали по всей структуре вместе со служебным флагом, а данные предназначались только для массива токена. Считать длину/ёмкость самого подмассива, отказаться от неверного reinterpretation и отдельно сохранять owner-проверку. Тест: максимальная длина токена и максимум+1 не меняют соседний признак полномочий. [Авторский разбор](https://github.com/enowars/enowars10-service-flagdrive/blob/d1575098fe2c516460136bb5fba11d9a1c4af3f7/documentation/FLAGSTORE_1.md). Это ошибка границ и преобразования памяти в конкретном сервисе, не утверждение о дефекте компилятора.
 
 <a id="rust-path-prefix"></a>
 
-## RUST-PATH-PREFIX. Prefix validation and filesystem fallback
+<a id="rust-path-prefix-prefix-validation-and-filesystem-fallback"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-PATH-PREFIX. Валидация префикса имени и файловый fallback
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'username|canonicalize|create_dir|fs::read|fs::write' .
 ~~~
 
-Compare the validated prefix with the entire path; check UTF-8 boundaries and alternative filesystem fallbacks.
+Сравнить проверенный префикс и целый путь; проверить UTF-8 boundary и альтернативный filesystem fallback.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**DEF CON / bisbee, source.** Only part of username is checked, while the full name forms a path; an internal database miss falls back to file reading.
+**DEF CON / bisbee, код.** Проверяется часть username, целое имя используется
+в пути; при промахе внутренней БД происходит чтение файла.
 
-**Fix:** Validate the complete name and UTF-8 boundaries, select storage paths server-side, and apply identical authorization to primary and fallback paths.
+**Исправление:** проверять полное имя и границы UTF-8, серверный storage path,
+одинаковая auth-политика основного и fallback пути.
 
-**Verification:** Short/long/multibyte names, separators in the suffix and database misses.
+**Проверка:** короткое/длинное/многобайтовое имя, разделители в хвосте, промах БД.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [source/write-up 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [source/write-up 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [source/write-up 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [source/write-up 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [source/write-up 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [исходник/разбор 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [исходник/разбор 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [исходник/разбор 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [исходник/разбор 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [исходник/разбор 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
 
-**Reference:** [primary source](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
+**Основание:** [первичный материал](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
 
 <a id="rust-ffi-abi"></a>
 
-## RUST-FFI-ABI. C and Rust extern return types disagree
+<a id="rust-ffi-abi-c-and-rust-extern-return-types-disagree"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUST-FFI-ABI. Несовпадение возвращаемого типа C и Rust extern
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'extern|store_data|c_void|size_t' .
 ~~~
 
-Compare C headers/implementation with Rust declarations: return type, signedness, layout and calling convention.
+Сравнить C header/реализацию и Rust declaration: return type, signedness, layout и calling convention.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-**DEF CON / bisbee, source and header.** C store_data returns void; Rust declares i8 and uses that result to select a fallback.
+**DEF CON / bisbee, код + header.** C store_data возвращает void,
+Rust объявляет i8 и использует полученный результат для выбора fallback.
 
-**Fix:** A shared ABI contract/generated bindings; consume status only through a real, identically typed return value. Never base error handling on an uninitialized result.
+**Исправление:** общий ABI-контракт/генерация bindings; статус только через действительно
+возвращаемое значение одинакового типа, обработка ошибок без неинициализированного
+результата.
 
-**Verification:** Builds with warnings, size/signedness/return-type agreement and ordinary storage failures.
+**Проверка:** build с предупреждениями, размеры/знаковость/тип результата,
+штатные ошибки хранения.
 
-**A/D variant:** Source and version: [source/write-up 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [source/write-up 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [source/write-up 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [source/write-up 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [source/write-up 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [source/write-up 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
+**Вариант A/D:** Основание и версия: [исходник/разбор 1](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs); [исходник/разбор 2](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.c); [исходник/разбор 3](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv.h); [исходник/разбор 4](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.c); [исходник/разбор 5](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_hashmap.h); [исходник/разбор 6](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/db/kv_list.c).
 
-**Reference:** [primary source](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
+**Основание:** [первичный материал](https://github.com/Nautilus-Institute/finals-2024/blob/f17456fed4ff40e6f4f1237ed4b82c242e52ec67/bisbee/src/service/src/main.rs).
 
 <a id="rust-tls"></a>
 
-## RUST-TLS. Rust HTTP accepts invalid certificates
+<a id="rust-tls-rust-http-accepts-invalid-certificates"></a>
 
-**Search:** scanner rule RUST-TLS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUST-TLS` for details. Regex: danger_accept_invalid_certs/hostnames(true), including reqwest/native-tls-like builders. Review variable values and custom verifiers.
+## RUST-TLS. Rust HTTP принимает недействительный сертификат
 
-**Vulnerable example:** Dangerous builder flags disable certificate/hostname validation.
+**Поиск:** скрипт, правило RUST-TLS. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUST-TLS. Regex: danger_accept_invalid_certs/hostnames(true), включая reqwest/native-tls-подобные builders. Значения из переменных и custom verifier вручную.
+
+**Уязвимый вариант:** Опасные builder flags отключают проверку сертификата/имени.
 
 ~~~rust
 let client = reqwest::Client::builder().danger_accept_invalid_certs(true).build()?;
 ~~~
 
-**Fix:** Use default validation and add the internal root CA instead of bypassing checks.
+**Исправление:** Использовать стандартную проверку; для внутреннего CA добавить доверенный root, не отключая проверки.
 
 ~~~rust
 let client = reqwest::Client::builder().add_root_certificate(trusted_ca).build()?;
 ~~~
 
-**Verification:** Correct CA/host works; invalid certificates/hostnames fail.
+**Проверка:** Свой CA/hostname работает; чужой сертификат/hostname отвергнут.
 
-Primary documentation: [reference 1](https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html).
+Первичная документация: [документация 1](https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html).
 
 <a id="rust-jwt-validation"></a>
 
-## RUST-JWT-VALIDATION. Rust JWT checks disabled
+<a id="rust-jwt-validation-rust-jwt-checks-disabled"></a>
 
-**Search:** scanner rule RUST-JWT-VALIDATION. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUST-JWT-VALIDATION` for details. Regex: insecure_disable_signature_validation, validate_exp/validate_aud=false and legacy dangerous_*decode. API depends on jsonwebtoken version.
+## RUST-JWT-VALIDATION. Rust JWT: отключены обязательные проверки
 
-**Vulnerable example:** Without signature or expiry validation, decoded claims are insufficient grounds for granting access.
+**Поиск:** скрипт, правило RUST-JWT-VALIDATION. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUST-JWT-VALIDATION. Regex: insecure_disable_signature_validation, validate_exp/validate_aud=false и старые dangerous_*decode. API зависит от версии jsonwebtoken.
+
+**Уязвимый вариант:** Отключённая подпись или expiry делает разобранные claims недостаточным основанием для доступа.
 
 ~~~rust
 validation.insecure_disable_signature_validation();
 validation.validate_exp = false;
 ~~~
 
-**Fix:** Use verifying decode with a trusted key and Validation contract; check its result before access.
+**Исправление:** Использовать проверяющий decode с доверенным ключом и контрактом Validation; проверить результат до доступа.
 
 ~~~rust
 let mut validation = Validation::new(Algorithm::RS256);
@@ -452,6 +506,6 @@ validation.set_issuer(&["auth"]);
 validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
 ~~~
 
-**Verification:** Invalid signatures, expiry and missing required fields fail.
+**Проверка:** Неверная подпись, истечение и отсутствие обязательного поля отклоняются.
 
-Primary documentation: [reference 1](https://docs.rs/jsonwebtoken/latest/jsonwebtoken/struct.Validation.html).
+Первичная документация: [документация 1](https://docs.rs/jsonwebtoken/latest/jsonwebtoken/struct.Validation.html).

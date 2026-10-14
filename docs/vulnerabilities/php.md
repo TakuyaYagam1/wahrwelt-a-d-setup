@@ -1,68 +1,75 @@
-# PHP: find, fix and verify
+<a id="php-find-fix-and-verify"></a>
 
-English | [Русский](php-RU.md)
+# PHP: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-23 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+23 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [PHP-SQL — Dynamic PHP SQL](#php-sql)
-- [PHP-OBJECT — Untrusted PHP unserialize](#php-object)
-- [PHP-SHELL — PHP code or shell execution](#php-shell)
-- [PHP-INCLUDE — Client-selected include path](#php-include)
-- [PHP-PREFIX-MAC — Hash concatenation instead of MAC](#php-prefix-mac)
-- [PHP-PARSE-STR — parse_str key normalization](#php-parse-str)
-- [PHP-LOOSE-COMPARE — Loose comparison of token or signature](#php-loose-compare)
-- [PHP-UPLOAD — Moving an uploaded file](#php-upload)
-- [PHP-DISPLAY-ERRORS — PHP displays errors to clients](#php-display-errors)
-- [PHP-XSS — Raw data reaches HTML, attributes or JavaScript](#php-xss)
-- [PHP-SESSION — Session fixation, strict mode and stale state](#php-session)
-- [PHP-WRAPPERS — Filesystem APIs accept URLs or wrappers](#php-wrappers)
-- [PHP-EXTRACT — extract overwrites local variables](#php-extract)
-- [PHP-SERIALIZE-MAGIC — Magic methods and trust in stored data](#php-serialize-magic)
-- [PHP-CSRF — Cookies authorize mutations without CSRF protection](#php-csrf)
-- [PHP-REGEX-ERROR — preg_match errors become permission](#php-regex-error)
-- [PHP-XML-FLAGS — XML entity substitution or DTD enabled](#php-xml-flags)
-- [PHP-TEMPLATE — Template built from dynamic text](#php-template)
-- [PHP-CURL-TLS — cURL certificate or hostname checks disabled](#php-curl-tls)
-- [PHP-URL-INCLUDE — Remote resource inclusion enabled](#php-url-include)
-- [PHP-SESSION-CONFIG — Weakened PHP session configuration](#php-session-config)
-- [PHP-MASS-ASSIGN — Array keys choose columns and privileges](#php-mass-assign)
-- [PHP-LDAP-FILTER — LDAP filter concatenates a PHP variable](#php-ldap-filter)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [PHP-SQL - Динамический SQL PHP](#php-sql)
+- [PHP-OBJECT - unserialize внешних данных](#php-object)
+- [PHP-SHELL - Исполнение текста PHP/команды](#php-shell)
+- [PHP-INCLUDE - Клиентский путь include](#php-include)
+- [PHP-PREFIX-MAC - Хеш конкатенации вместо MAC](#php-prefix-mac)
+- [PHP-PARSE-STR - Нормализация ключей parse_str](#php-parse-str)
+- [PHP-LOOSE-COMPARE - Нестрогое сравнение токена или подписи](#php-loose-compare)
+- [PHP-UPLOAD - Перенос загруженного файла](#php-upload)
+- [PHP-DISPLAY-ERRORS - PHP показывает ошибки клиенту](#php-display-errors)
+- [PHP-XSS - HTML/атрибут/JS получают сырой текст](#php-xss)
+- [PHP-SESSION - PHP session: fixation, strict mode, старое состояние](#php-session)
+- [PHP-WRAPPERS - Файловый API принимает URL/wrapper](#php-wrappers)
+- [PHP-EXTRACT - extract и variable variables подменяют контекст](#php-extract)
+- [PHP-SERIALIZE-MAGIC - Magic methods и доверие данным из БД](#php-serialize-magic)
+- [PHP-CSRF - Cookie авторизует изменяющий запрос без CSRF](#php-csrf)
+- [PHP-REGEX-ERROR - Ошибка preg_match трактуется как разрешение](#php-regex-error)
+- [PHP-XML-FLAGS - XML разрешает подстановку сущностей и DTD](#php-xml-flags)
+- [PHP-TEMPLATE - Шаблон создаётся из динамического текста](#php-template)
+- [PHP-CURL-TLS - cURL не проверяет сертификат или имя](#php-curl-tls)
+- [PHP-URL-INCLUDE - Разрешён include удалённого ресурса](#php-url-include)
+- [PHP-SESSION-CONFIG - Ослабленные настройки PHP-сессии](#php-session-config)
+- [PHP-MASS-ASSIGN - Ключи массива выбирают колонки и права](#php-mass-assign)
+- [PHP-LDAP-FILTER - LDAP-фильтр склеивается с PHP-переменной](#php-ldap-filter)
 
 <a id="php-sql"></a>
 
-## PHP-SQL. Dynamic PHP SQL
+<a id="php-sql-dynamic-php-sql"></a>
 
-**Search:** scanner rule PHP-SQL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-SQL` for details. Regex: query/exec/prepare with concatenation, double-quoted interpolation and mysqli_query/pg_query with an ordinary connection argument. Escaping, other interpolation and SQL variables are not fully parsed.
+## PHP-SQL. Динамический SQL PHP
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-SQL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-SQL. Regex: query/exec/prepare со сборкой строки, double-quoted интерполяция, mysqli_query/pg_query с обычным аргументом соединения. Escaping, другие формы интерполяции и SQL из переменной полноценно не разбираются.
+
+**Уязвимый вариант:**
 
 ~~~php
 $db->query("SELECT id FROM notes WHERE name=" . $name);
 ~~~
 
-**Fix:** Use driver-supported prepared statements and bound values; allowlist identifiers.
+**Исправление:** Prepared statements и связанные значения в API выбранного драйвера, например PDO prepare/execute; идентификаторы - из разрешённого набора, значения не подставлять вручную.
 
 ~~~php
 $stmt = $db->prepare("SELECT id FROM notes WHERE name = ?");
 $stmt->execute([$name]);
 ~~~
 
-**Verification:** Quotes stay data and ownership conditions remain.
+**Проверка:** Кавычки остаются данными; ограничения владельца сохраняются.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```php
 // Vulnerable: client input is interpolated into SQL.
 $row = $pdo->query("SELECT body FROM notes WHERE id = '" . $_GET['id'] . "'")->fetch();
 ```
 
-**PDO patch for a private note:**
+**Патч PDO для приватной заметки:**
 
 ```php
 function readPrivateNote(PDO $pdo, ?int $userId, int $noteId): ?string {
@@ -78,41 +85,48 @@ function readPrivateNote(PDO $pdo, ?int $userId, int $noteId): ?string {
 }
 ```
 
-Validate the numeric ID first: `(int) $_GET['id']` silently converts some invalid strings. Configure PDO error handling and do not return SQL exceptions to clients. Placeholders represent values, not table/column names. Native prepares may be appropriate for supported drivers, but do not change application-wide settings blindly; driver behavior differs.
+До функции валидировать числовой ID: `(int) $_GET['id']` молча преобразует часть
+некорректных строк. Настроить обработку ошибок PDO; не возвращать клиенту текст
+SQL-исключения. Маркеры предназначены для значений, не имён таблиц/столбцов.
+Для поддерживающего драйвера можно использовать native prepares; не менять
+режим всего приложения вслепую, поскольку поведение драйверов различается.
 
-**Check:** Owner, other user, no session, missing record, invalid ID and another searchable text field containing an apostrophe. Preserve intended sharing.
+**Проверить:** своё/чужое/нет сессии; отсутствующая запись; неверный ID; поиск
+другого строкового поля с апострофом не ломается. Сохранить общий доступ, если он есть.
 
 </details>
 
 <a id="php-object"></a>
 
-## PHP-OBJECT. Untrusted PHP unserialize
+<a id="php-object-untrusted-php-unserialize"></a>
 
-**Search:** scanner rule PHP-OBJECT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-OBJECT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-OBJECT. unserialize внешних данных
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-OBJECT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-OBJECT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 $value = unserialize($data);
 ~~~
 
-**Fix:** Prefer schema-validated JSON; migrate trusted legacy records separately. allowed_classes alone is not a complete input policy.
+**Исправление:** JSON со схемой; совместимость старого формата отдельно. allowed_classes=false не заменяет схему.
 
 ~~~php
 $value = json_decode($data, true, 32, JSON_THROW_ON_ERROR); // validate schema
 ~~~
 
-**Verification:** Unexpected object types fail without construction; valid records stay readable.
+**Проверка:** Объекты PHP не создаются; старые данные учтены.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```php
 // Vulnerable with untrusted input: object restoration has side effects.
 $profile = unserialize($_COOKIE['profile']);
 ```
 
-**Patch for a simple profile when the protocol supports JSON:**
+**Патч для простого профиля при совместимом JSON-контракте:**
 
 ```php
 function decodeProfile(string $raw): array {
@@ -128,33 +142,42 @@ function decodeProfile(string $raw): array {
 }
 ```
 
-Depth 32 is an example bound, not a competition requirement; bound body size before parsing according to contract. Role and owner come from the server. PHP warns against untrusted unserialize even with allowed_classes: that flag alone is not a complete fix.
+Глубина 32 - пример ограничения, не требование игры; размер тела ограничивать
+до парсинга по контракту. `role` и владелец задаются сервером. PHP прямо
+предостерегает от `unserialize` недоверенных данных даже с `allowed_classes`:
+один этот флаг не считать полным исправлением.
 
-**Check:** Valid profile, unknown field, array instead of object, wrong type and malformed JSON. Format migration must support old clients/data; never retain unserialize fallback for client strings.
+**Проверить:** корректный профиль, неизвестное поле, массив вместо объекта,
+неверный тип и ошибка JSON. Переход формата требует совместимости старых клиентов
+и данных; не оставлять fallback на `unserialize` для строки клиента.
 
 </details>
 
 <a id="php-shell"></a>
 
-## PHP-SHELL. PHP code or shell execution
+<a id="php-shell-php-code-or-shell-execution"></a>
 
-**Search:** scanner rule PHP-SHELL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-SHELL` for details. Regex: eval/shell_exec/system/passthru/popen/exec and string/variable proc_open. Literal argv arrays in proc_open's first argument (including PHP 8 command:) are excluded unless explicitly launching shell; arrays require PHP 7.4+. Review executable/options, reordered named arguments, backticks, variable functions, wrappers and runtime version. Custom same-named functions/comments may match.
+## PHP-SHELL. Исполнение текста PHP/команды
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-SHELL. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-SHELL. Regex: eval/shell_exec/system/passthru/popen/exec и строковый/переменный proc_open. Literal argv-массив proc_open в первом аргументе, также с command: в PHP 8+, не помечается, кроме явного shell; массив поддержан PHP 7.4+. Исполняемый файл и опасные опции проверить вручную. Переставленные named arguments, backticks, variable functions, wrappers и действующая версия PHP требуют ручного анализа; одноимённые пользовательские функции и комментарии могут совпадать.
+
+**Уязвимый вариант:**
 
 ~~~php
 shell_exec($command);
 ~~~
 
-**Fix:** Prefer a library operation; otherwise use a fixed executable and validated argv without a shell.
+**Исправление:** Библиотечная операция вместо shell; иначе фиксированные argv через API без оболочки.
 
 ~~~php
 $size = filesize($checkedPath);
 ~~~
 
-**Verification:** Metacharacters and dangerous options cannot change the operation.
+**Проверка:** Штатная функция сохранена; текст не исполняется.
 
-proc_open accepts argv arrays from PHP 7.4; the named command argument requires PHP 8.0. Arrays pass arguments without an implicit shell. A genuinely required utility can run without shell, for example on PHP 8+:
+`proc_open` принимает argv-массив начиная с PHP 7.4; именованный `command:` -
+с PHP 8.0. Массив передаётся процессу без неявной оболочки. Для действительно
+нужной утилиты можно сохранить вызов без shell, например на PHP 8+:
 
 ~~~php
 $process = proc_open(
@@ -164,35 +187,54 @@ $process = proc_open(
 );
 ~~~
 
-The executable is fixed; $checkedName still needs authorization and path checks. `--` is valid only for utilities supporting that separator. `command: array('/usr/bin/file', '--', $checkedName)` also avoids PHP-SHELL. The exclusion covers only a literal-array first argument; reordered named arguments and variable arrays remain review signals. [proc_open arrays and Windows limitations](https://github.com/php/doc-en/blob/master/reference/exec/functions/proc-open.xml#L68), [PHP 8 named arguments](https://www.php.net/manual/en/migration80.new-features.php#migration80.new-features.core.named-arguments), [PHP 8.0 proc_open signature](https://github.com/php/php-src/blob/php-8.0.0/ext/standard/basic_functions.stub.php#L1156).
+Здесь путь к executable фиксирован, а `$checkedName` должен пройти проверку
+доступа и допустимого пути. `--` подходит только утилите, поддерживающей такой
+разделитель. `command: array('/usr/bin/file', '--', $checkedName)` также не
+получает PHP-SHELL. Исключение ограничено первым аргументом с литеральной
+формой массива; перестановка именованных аргументов и массив из переменной
+остаются сигналами для просмотра.
+[proc_open: массив и ограничения Windows](https://github.com/php/doc-en/blob/master/reference/exec/functions/proc-open.xml#L68),
+[PHP 8: именованные аргументы](https://www.php.net/manual/en/migration80.new-features.php#migration80.new-features.core.named-arguments),
+[сигнатура proc_open в PHP 8.0](https://github.com/php/php-src/blob/php-8.0.0/ext/standard/basic_functions.stub.php#L1156).
 
-Explicit shell execution remains risky and still signals even with an array:
+Явный запуск shell сохраняет риск и сигнал даже при массиве:
 
 ~~~php
 $process = proc_open(command: ['sh', '-c', $command], descriptor_spec: $descriptors, pipes: $pipes);
 ~~~
 
-Do not convert a pipeline to argv by simply splitting text: move operations to a library or connect processes explicitly. Review executable, options, PATH, cwd and environment. On Windows array escaping assumes VC-runtime-compatible command-line parsing; other parsers may differ. Close pipes/processes and check errors, runtime/output limits and the old result format.
+Не превращать pipeline в argv простым разделением строки: перенести нужные
+операции в библиотеку либо явно связать процессы. Проверить executable,
+опции, `PATH`, рабочий каталог и окружение. На Windows экранирование массива
+рассчитано на совместимый с VC runtime разбор командной строки; произвольный
+parser программы может иметь другой контракт. Закрывать pipes и процесс,
+проверять ошибки, лимиты времени/вывода и прежний формат результата.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'proc_open|proc_close|proc_terminate|shell_exec|descriptor_spec|bypass_shell' .
 ~~~
 
-After a match trace actual argv and every argument's origin. In an authorized test environment check spaces, quotes, leading dashes, normal files and process failure. Absence of PHP-SHELL does not prove argument safety. This catalog review checked source and scanner behavior; it did not run PHP or the discovered commands.
+После совпадения проследить реальный argv и источник каждого аргумента.
+В разрешённом тестовом окружении проверить пробелы, кавычки, имя с ведущим
+дефисом, штатный файл и ошибку процесса. Отсутствие PHP-SHELL не доказывает
+безопасность аргументов. Здесь проверены исходники и поведение сканера;
+PHP runtime и найденные команды не запускались.
 
 <a id="php-include"></a>
 
-## PHP-INCLUDE. Client-selected include path
+<a id="php-include-client-selected-include-path"></a>
 
-**Search:** scanner rule PHP-INCLUDE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-INCLUDE` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-INCLUDE. Клиентский путь include
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-INCLUDE. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-INCLUDE. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 include $_GET['page'];
 ~~~
 
-**Fix:** Select server-owned include paths from a closed allowlist, never client paths/URLs.
+**Исправление:** Фиксированная таблица разрешённых модулей; пользовательский текст хранить как данные.
 
 ~~~php
 $pages = ['home' => __DIR__ . '/pages/home.php'];
@@ -200,17 +242,17 @@ if (!isset($pages[$page])) { throw new Exception('bad page'); }
 include $pages[$page];
 ~~~
 
-**Verification:** Only approved pages load; traversal and remote schemes fail.
+**Проверка:** Неизвестные имена/пути отвергаются; штатные страницы работают.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```php
 // Vulnerable: the client controls the executable PHP file path.
 include $_GET['page'];
 ```
 
-**Patch when the contract selects one of several known pages:**
+**Патч, если контракт - выбор одной из известных страниц:**
 
 ```php
 $pages = [
@@ -225,322 +267,365 @@ if (!is_string($page) || !array_key_exists($page, $pages)) {
 require $pages[$page];
 ```
 
-The server defines paths. The profile page still requires authorization before private data is returned. basename() neither restricts selection to the intended pages nor checks access. If the feature displays user-uploaded files, include must not implement that display.
+Пути заданы сервером. Требования авторизации `profile` остаются обязательными
+до выдачи приватных данных. `basename()` не ограничивает пользователя нужным
+набором страниц и не решает права. Если функция обещает загрузку пользовательского
+файла, `include` вообще не должен использоваться для его отображения.
 
-**Check:** Both normal pages, unknown names and an array in place of page; anonymous callers cannot open private pages; only permitted selection changes.
+**Проверить:** обе штатные страницы, неизвестное имя, массив вместо page;
+закрытая страница не открывается анониму; меняется только допустимый выбор страницы.
 
 </details>
 
 <a id="php-prefix-mac"></a>
 
-## PHP-PREFIX-MAC. Hash concatenation instead of MAC
+<a id="php-prefix-mac-hash-concatenation-instead-of-mac"></a>
 
-**Search:** scanner rule PHP-PREFIX-MAC. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-PREFIX-MAC` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-PREFIX-MAC. Хеш конкатенации вместо MAC
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-PREFIX-MAC. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-PREFIX-MAC. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 $tag = sha1($key . $payload);
 ~~~
 
-**Fix:** Use HMAC rather than a hash of secret concatenated with data, compare with hash_equals and migrate/version old formats.
+**Исправление:** HMAC с секретом вместо sha1(secret || data). Проверять тег через hash_equals; версионировать формат и спланировать переход старых токенов.
 
 ~~~php
 $tag = hash_hmac('sha256', $payload, $key);
 ~~~
 
-**Verification:** Changed/appended data fails; tags bind purpose and all authentication fields.
+**Проверка:** Изменение/добавление данных не проходит; подпись охватывает назначение и все auth-поля.
 
-**A/D variant:** Secret-prefix hash mislabeled HMAC. **ECSC / Diese, author and source.** Signatures used SHA1(secret || data). **Patch:** Real HMAC, token versioning and safe migration of existing signatures. **Test:** Changed/added fields fail validation. **Search:** PHP-PREFIX-MAC; a function named hmac guarantees nothing.
+**Вариант A/D:** Secret-prefix hash ошибочно назван HMAC. **ECSC / Diese, автор + код.** Подпись построена как SHA1 от secret || data.
+**Патч:** настоящий HMAC и версия токена; безопасный переход старых подписей.
+**Тест:** изменение/добавление полей не принимается.
+**Поиск:** PHP-PREFIX-MAC; имя функции hmac само по себе ничего не гарантирует.
 
-[source/write-up 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [source/write-up 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [source/write-up 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
+[исходник/разбор 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [исходник/разбор 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [исходник/разбор 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
 
 <a id="php-parse-str"></a>
 
-## PHP-PARSE-STR. parse_str key normalization
+<a id="php-parse-str-parse_str-key-normalization"></a>
 
-**Search:** scanner rule PHP-PARSE-STR. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-PARSE-STR` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-PARSE-STR. Нормализация ключей parse_str
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-PARSE-STR. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-PARSE-STR. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 parse_str($token_data, $params);
 ~~~
 
-**Fix:** Use identical schemas before signing/after parsing; account for dots/spaces becoming underscores, arrays and duplicate keys.
+**Исправление:** Явная схема и allowlist полей до подписи и после разбора; учесть преобразование точек/пробелов в underscore, массивы и дубли ключей.
 
 ~~~php
 $params = parse_and_validate_canonical_share_dto($token_data); // one schema, duplicate policy, server-owned fields
 ~~~
 
-**Verification:** Alternate spellings cannot change owner/document; signer and verifier agree.
+**Проверка:** Разные написания поля не меняют owner/doc_id; signer и verifier разбирают одинаково.
 
-**A/D variant:** Parameter-key normalization after signing. **ECSC / Diese, author and source.** parse_str merges certain distinct names and changes field meaning. **Patch:** An allowlist and one canonical signer/verifier DTO schema; reject ambiguous duplicates. **Test:** Dots, spaces, underscores and arrays. **Search:** PHP-PARSE-STR; the call itself need not be vulnerable.
+**Вариант A/D:** Нормализация ключей параметров после подписи. **ECSC / Diese, автор + код.** parse_str превращает некоторые разные имена
+в одинаковые, меняя смысл полей.
+**Патч:** allowlist и одна каноническая DTO-схема у signer/verifier; запрет
+неоднозначных дублей. **Тест:** точки, пробелы, underscore и массивы.
+**Поиск:** PHP-PARSE-STR; сам вызов не обязательно уязвим.
 
-[source/write-up 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [source/write-up 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [source/write-up 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
+[исходник/разбор 1](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/README.md); [исходник/разбор 2](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/webapp/src/classes/Utils.class.php); [исходник/разбор 3](https://github.com/ECSC2024/ECSC2024-CTF-AD/blob/2a92e17384ad228072a84fb076a35066fe2ffeff/sources/Diese/hsm/src/msg.c).
 
 <a id="php-loose-compare"></a>
 
-## PHP-LOOSE-COMPARE. Loose comparison of token or signature
+<a id="php-loose-compare-loose-comparison-of-token-or-signature"></a>
 
-**Search:** scanner rule PHP-LOOSE-COMPARE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-LOOSE-COMPARE` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-LOOSE-COMPARE. Нестрогое сравнение токена или подписи
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-LOOSE-COMPARE. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-LOOSE-COMPARE. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 $ok = $token == $provided;
 ~~~
 
-**Fix:** Validate types; use hash_equals for tags, === for ordinary values and password_verify for passwords. Numeric-string semantics depend on version/operands.
+**Исправление:** Проверить тип; для тега hash_equals, для обычного значения ===, для пароля password_verify. Семантика числовых строк зависит от версии и операндов.
 
 ~~~php
 $ok = is_string($provided) && hash_equals($token, $provided);
 ~~~
 
-**Verification:** Numbers, arrays and numeric strings cannot grant access; valid values work.
+**Проверка:** Число/массив/числовая строка не превращаются в авторизацию; правильное значение принимается.
 
-**Reference:** [primary source](https://www.php.net/manual/en/language.operators.comparison.php).
+**Основание:** [первичный материал](https://www.php.net/manual/en/language.operators.comparison.php).
 
 <a id="php-upload"></a>
 
-## PHP-UPLOAD. Moving an uploaded file
+<a id="php-upload-moving-an-uploaded-file"></a>
 
-**Search:** scanner rule PHP-UPLOAD. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-UPLOAD` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-UPLOAD. Перенос загруженного файла
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-UPLOAD. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-UPLOAD. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 move_uploaded_file($tmp, $webroot . $name);
 ~~~
 
-**Fix:** Check upload error/size/type; use non-overwriting server-generated names outside executable web roots and authorize downloads.
+**Исправление:** Проверять upload error/размер/тип, серверное имя и отсутствие перезаписи, хранить вне исполняемого webroot; выдавать после auth.
 
 ~~~php
 move_uploaded_file($validatedTmp, $serverChosenPrivatePath);
 ~~~
 
-**Verification:** Test upload/download, collisions, wrong owner/type and full disk. The call remains a review signal.
+**Проверка:** Обычный upload/download, коллизия имени, чужой owner, неверный тип и полный диск. Вызов остаётся сигналом.
 
-**Reference:** [primary source](https://www.php.net/manual/en/features.file-upload.php).
+**Основание:** [первичный материал](https://www.php.net/manual/en/features.file-upload.php).
 
 <a id="php-display-errors"></a>
 
-## PHP-DISPLAY-ERRORS. PHP displays errors to clients
+<a id="php-display-errors-php-displays-errors-to-clients"></a>
 
-**Search:** scanner rule PHP-DISPLAY-ERRORS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-DISPLAY-ERRORS` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## PHP-DISPLAY-ERRORS. PHP показывает ошибки клиенту
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило PHP-DISPLAY-ERRORS. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-DISPLAY-ERRORS. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~php
 display_errors = On
 ~~~
 
-**Fix:** Disable client error output and retain redacted local logs; check effective php.ini/FPM and runtime ini_set.
+**Исправление:** Отключить клиентский вывод, включить локальный журнал без секретов; проверить эффективный php.ini/FPM pool и runtime ini_set.
 
 ~~~php
 display_errors = Off
 ~~~
 
-**Verification:** Parse/database/type errors yield expected public responses while private diagnostics remain.
+**Проверка:** Parse/DB/type error дают штатный ответ, диагностика сохраняется.
 
-**Reference:** [primary source](https://www.php.net/manual/en/errorfunc.configuration.php).
+**Основание:** [первичный материал](https://www.php.net/manual/en/errorfunc.configuration.php).
 
 <a id="php-xss"></a>
 
-## PHP-XSS. Raw data reaches HTML, attributes or JavaScript
+<a id="php-xss-raw-data-reaches-html-attributes-or-javascript"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-XSS. HTML/атрибут/JS получают сырой текст
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'echo|print|htmlspecialchars|json_encode|<script' .
 ~~~
 
-Identify the output context; htmlspecialchars for HTML text does not make a string safe JavaScript.
+Определить контекст вывода; htmlspecialchars для текста не делает строку безопасным JavaScript.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`echo $title` inside HTML lacks encoding; JSON enters script without an appropriate serializer.
+echo $title внутри HTML без encoding; вставка JSON в script без подходящего сериализатора.
 
-**Fix:** Template autoescape or htmlspecialchars with ENT_QUOTES/ENT_SUBSTITUTE and UTF-8 for HTML; separate safe JavaScript/URL handling.
+**Исправление:** Autoescape шаблона или htmlspecialchars с ENT_QUOTES/ENT_SUBSTITUTE и UTF-8 для HTML; отдельное безопасное кодирование JS/URL.
 
-**Verification:** Quotes, tags and Unicode render as data; legitimate formatting remains intact.
+**Проверка:** Кавычки/теги/Unicode показываются как данные; легитимное форматирование не ломается.
 
 <details>
-<summary>Expanded example and limitations</summary>
+<summary>Развёрнутый пример и ограничения</summary>
 
 ```php
 // Vulnerable with untrusted title: the browser interprets it as markup.
 echo '<p>' . $title . '</p>';
 ```
 
-**Patch for HTML text content:**
+**Патч для текстового содержимого HTML:**
 
 ```php
 echo '<p>' . htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>';
 ```
 
-Validate $title as a string first. Store original text and encode on output to avoid cumulative double escaping during edits. This is not JavaScript/CSS encoding or URL validation; those contexts need different mechanisms. Intentionally supported HTML requires sanitizing the permitted subset rather than turning all markup into text.
+`$title` перед этим проверен как строка. Сохранить исходный текст в БД и кодировать
+при выводе. Иначе повторное редактирование может накопить двойное экранирование.
+Этот пример не является кодированием JavaScript, CSS или проверкой URL; для этих
+контекстов другой механизм. Разрешённый по контракту HTML требует очистки
+допустимого подмножества, а не превращения всей разметки в текст.
 
-**Check:** <, >, &, quotes and Unicode render as text; existing records and save/open/edit cycles preserve original content.
+**Проверить:** `<`, `>`, `&`, кавычки и Unicode показываются текстом; старая запись
+и цикл "сохранить -> открыть -> изменить" сохраняют исходное содержание.
 
 </details>
 
 <a id="php-session"></a>
 
-## PHP-SESSION. Session fixation, strict mode and stale state
+<a id="php-session-session-fixation-strict-mode-and-stale-state"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-SESSION. PHP session: fixation, strict mode, старое состояние
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'session_start|session_regenerate_id|session.use_strict_mode|session_id' .
 ~~~
 
-Trace externally supplied session IDs, login-time regeneration and role storage.
+Проследить принятие внешнего ID, регенерацию при login и запись роли в session.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An unknown external ID is accepted and remains unchanged after login.
+Внешний неизвестный ID принимается, после входа остаётся тем же.
 
-**Fix:** session.use_strict_mode, supported regeneration with concurrent requests considered, server-derived roles and consistent Secure/HttpOnly/SameSite settings.
+**Исправление:** session.use_strict_mode, штатная регенерация с учётом concurrent requests, серверная роль; согласованные Secure/HttpOnly/SameSite.
 
-**Verification:** The old ID cannot authorize; normal parallel requests retain state.
+**Проверка:** Прежний ID не авторизует, обычные параллельные запросы не теряют состояние.
 
-**Reference:** [primary source](https://www.php.net/manual/en/session.security.ini.php).
+**Основание:** [первичный материал](https://www.php.net/manual/en/session.security.ini.php).
 
 <a id="php-wrappers"></a>
 
-## PHP-WRAPPERS. Filesystem APIs accept URLs or wrappers
+<a id="php-wrappers-filesystem-apis-accept-urls-or-wrappers"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-WRAPPERS. Файловый API принимает URL/wrapper
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'file_get_contents|fopen|copy\(|file_exists|is_file|phar|stream_context' .
 ~~~
 
-Determine whether each API accepts a path or stream URL; check installed PHP version and required wrappers.
+Проверить, что API принимает путь или stream URL; сопоставить версию PHP и нужные wrappers.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Users select a scheme/local path instead of an allowed object; open_basedir is not a complete sandbox.
+Пользователь выбирает схему/локальный путь вместо разрешённого объекта; open_basedir не является полным sandbox.
 
-**Fix:** Server-side paths derived from authorized IDs; a separate policy-constrained HTTP client for URLs; no client-selected wrapper.
+**Исправление:** Серверный путь из авторизованного ID; для HTTP отдельный клиент с URL policy; запрет клиентского выбора wrapper.
 
-**Verification:** Valid files load; external URLs, foreign files and unsupported schemes never reach the operation.
+**Проверка:** Штатный файл читается, внешний URL/чужой файл/нестандартная схема не достигают операции.
 
 <a id="php-extract"></a>
 
-## PHP-EXTRACT. extract overwrites local variables
+<a id="php-extract-extract-overwrites-local-variables"></a>
 
-**Search:** scanner rule PHP-EXTRACT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-EXTRACT` for details. Regex: any extract(...); trusted template contexts need manual classification.
+## PHP-EXTRACT. extract и variable variables подменяют контекст
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** скрипт, правило PHP-EXTRACT. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-EXTRACT. Regex: любой extract(...); доверенные шаблонные контексты требуют ручной классификации.
+
+Дополнительный ручной поиск для непокрытых форм:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'extract\(|parse_str|\$\$|GLOBALS|register_globals' .
 ~~~
 
-Compare imported keys with authorization/config variable names; two-argument parse_str has a different risk from its historical behavior.
+Сравнить импортируемые ключи с именами auth/config переменных; двухаргументный parse_str имеет иной риск, чем старое поведение.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`extract($_REQUEST)` overwrites locals, or `$$key` selects a sensitive variable.
+extract($_REQUEST) перезаписывает локальные переменные либо $$key выбирает чувствительное имя.
 
-**Fix:** Read explicit allowed fields. EXTR_SKIP reduces overwrites but does not replace schema/type and new-name controls.
+**Исправление:** Явно читать разрешённые поля в отдельный DTO; не импортировать клиентские ключи в symbol table. EXTR_SKIP уменьшает перезаписи, но не заменяет проверку схемы, типов и новых имён.
 
-**Verification:** Input is_admin/owner/config cannot alter access; approved values retain types.
+**Проверка:** role, authorized, путь и конфигурация не меняются при лишних ключах.
 
-**Reference:** [primary source](https://www.php.net/manual/en/function.extract.php).
+**Основание:** [первичный материал](https://www.php.net/manual/en/function.extract.php).
 
-**Scanner example before:**
+
+**Сигнал сканера - пример до:**
 
 ~~~php
 extract($_POST);
 if ($is_admin) { show_private_data(); }
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~php
 $display_name = validate_display_name($_POST['display_name'] ?? '');
 ~~~
 
-Primary documentation: [reference 1](https://www.php.net/manual/en/function.extract.php).
+Первичная документация: [документация 1](https://www.php.net/manual/en/function.extract.php).
 
 <a id="php-serialize-magic"></a>
 
-## PHP-SERIALIZE-MAGIC. Magic methods and trust in stored data
+<a id="php-serialize-magic-magic-methods-and-trust-in-stored-data"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-SERIALIZE-MAGIC. Magic methods и доверие данным из БД
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e '__wakeup|__unserialize|__destruct|__toString|unserialize' .
 ~~~
 
-Trace PHP-OBJECT sinks to reachable classes and side effects; a database is not trusted merely because client input was stored there.
+От места PHP-OBJECT пройти reachable classes и побочные эффекты; БД не становится доверенной после клиентской записи.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A deserialized object performs file/network operations before its result is checked.
+Десериализованный объект вызывает файловую/сетевую операцию до проверки результата.
 
-**Fix:** DTOs without type selection or side effects; separate compatible migration, not fallback to an unsafe parser.
+**Исправление:** DTO без выбора класса и побочных эффектов; совместимая миграция отдельно, не fallback на небезопасный parser.
 
-**Verification:** Unknown types have no effects; legitimate legacy formats follow the migration plan.
+**Проверка:** Неизвестный тип не вызывает эффектов; старый допустимый формат читается по плану.
 
 <a id="php-csrf"></a>
 
-## PHP-CSRF. Cookies authorize mutations without CSRF protection
+<a id="php-csrf-cookies-authorize-mutations-without-csrf-protection"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-CSRF. Cookie авторизует изменяющий запрос без CSRF
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'csrf|POST|PUT|DELETE|REQUEST_METHOD|SameSite' .
 ~~~
 
-Review forms and cookie-authenticated JSON endpoints, middleware exceptions and Origin/Referer policies.
+Проверить формы и JSON endpoint с cookie auth, исключения middleware и Origin/Referer policy.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The browser automatically attaches a cookie to state-changing requests from another context.
+Браузер автоматически прикладывает cookie к изменению состояния из чужого контекста.
 
-**Fix:** Framework CSRF tokens and architecture-appropriate origin checks. SameSite supplements, not replaces, server-side checks. Bearer APIs have a different threat context.
+**Исправление:** Штатный CSRF token и проверка origin по архитектуре; SameSite дополняет, не заменяет серверную проверку. Bearer API имеет другой контекст.
 
-**Verification:** Wrong/missing tokens fail; normal forms and supported API clients work.
+**Проверка:** Неверный/отсутствующий token отклоняется; нормальная форма и предусмотренные API-клиенты работают.
 
 <a id="php-regex-error"></a>
 
-## PHP-REGEX-ERROR. preg_match errors become permission
+<a id="php-regex-error-preg_match-errors-become-permission"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-REGEX-ERROR. Ошибка preg_match трактуется как разрешение
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'preg_match|preg_last_error|preg_replace' .
 ~~~
 
-Distinguish false, 0 and 1; find negated results and regex limits.
+Различить false, 0 и 1; найти отрицание результата и лимиты regex.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-An engine error on long input enters the 'prohibited content not found' branch.
+Ошибка движка при длинном вводе попадает в ветвь "запрещённое не найдено".
 
-**Fix:** Compare results strictly against 1/0/false according to meaning; fail closed on errors and bound length/complexity.
+**Исправление:** Проверять результат === 1/0/false по смыслу, fail closed при ошибке; ограничить длину и сложность.
 
-**Verification:** Match, no-match and engine errors produce distinct expected responses; normal Unicode remains supported.
+**Проверка:** Match/no-match/ошибка движка дают разные ожидаемые ответы, штатный Unicode поддержан.
 
-**Reference:** [primary source](https://www.php.net/manual/en/function.preg-match.php).
+**Основание:** [первичный материал](https://www.php.net/manual/en/function.preg-match.php).
 
 <a id="php-xml-flags"></a>
 
-## PHP-XML-FLAGS. XML entity substitution or DTD enabled
+<a id="php-xml-flags-xml-entity-substitution-or-dtd-enabled"></a>
 
-**Search:** scanner rule PHP-XML-FLAGS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-XML-FLAGS` for details. Regex: LIBXML_NOENT/DTDLOAD/DTDATTR/DTDVALID and substituteEntities/resolveExternals=true. Numeric ini/database masks are not decoded; inspect bits against runtime constants.
+## PHP-XML-FLAGS. XML разрешает подстановку сущностей и DTD
 
-**Vulnerable example:** NOENT substitutes entities; NONET alone does not prevent local-file access.
+**Поиск:** скрипт, правило PHP-XML-FLAGS. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-XML-FLAGS. Regex: LIBXML_NOENT/DTDLOAD/DTDATTR/DTDVALID и substituteEntities/resolveExternals=true. Числовые маски из ini/БД не распознаются: вручную сопоставить каждый бит с константами runtime.
+
+**Уязвимый вариант:** NOENT означает подстановку сущностей, а NONET сам по себе не запрещает доступ к локальному файлу.
 
 ~~~php
 $doc->loadXML($xml, LIBXML_NOENT | LIBXML_DTDLOAD | LIBXML_NONET);
 ~~~
 
-**Fix:** Disable entity substitution/external DTD loading, bound input and check libxml version. Use LIBXML_NO_XXE where supported; NONET alone is insufficient.
+**Исправление:** Убрать подстановку/загрузку внешних DTD, установить лимиты и проверить версию libxml. На поддерживаемом runtime добавить LIBXML_NO_XXE; не полагаться на один NONET.
 
 ~~~php
 $doc->resolveExternals = false;
@@ -548,85 +633,93 @@ $doc->substituteEntities = false;
 $doc->loadXML($boundedXml, LIBXML_NONET);
 ~~~
 
-**Verification:** Ordinary XML works; entities/DTD read no files or network and nesting/size are limited.
+**Проверка:** Обычный XML разбирается; внешний DTD/сущность не читает файл и не делает сетевой запрос, объём/вложенность ограничены.
 
-Primary documentation: [reference 1](https://www.php.net/manual/en/libxml.constants.php), [reference 2](https://github.com/enowars/enowars7-service-oldschool#vulnerabilities).
+Первичная документация: [документация 1](https://www.php.net/manual/en/libxml.constants.php), [документация 2](https://github.com/enowars/enowars7-service-oldschool#vulnerabilities).
 
 <a id="php-template"></a>
 
-## PHP-TEMPLATE. Template built from dynamic text
+<a id="php-template-template-built-from-dynamic-text"></a>
 
-**Search:** scanner rule PHP-TEMPLATE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-TEMPLATE` for details. Regex: createTemplate($...) and Smarty display/fetch with eval: or string:. Inspect variable loaders, custom filters and database templates.
+## PHP-TEMPLATE. Шаблон создаётся из динамического текста
 
-**Vulnerable example:** When user data becomes template source, users gain the template engine's capabilities.
+**Поиск:** скрипт, правило PHP-TEMPLATE. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-TEMPLATE. Regex: createTemplate($...) и Smarty display/fetch с eval: или string:. Переменные loaders, custom filters и шаблоны из БД просматривать вручную.
+
+**Уязвимый вариант:** Если пользовательские данные становятся исходником шаблона, возможности template engine становятся доступными пользователю.
 
 ~~~php
 $template = $twig->createTemplate($profileText);
 echo $template->render($vars);
 ~~~
 
-**Fix:** Separate trusted template source from values; user templates need explicit sandbox/loader/function/resource policy.
+**Исправление:** Разделить доверенный шаблон и параметры; если продукт допускает шаблоны, отдельно ограничить sandbox, loader, доступные функции и ресурсы.
 
 ~~~php
 echo $twig->render('profile.html.twig', ['about' => $profileText]);
 ~~~
 
-**Verification:** Profile template expressions remain data; private templates/files are unavailable.
+**Проверка:** Текст шаблонных выражений в профиле отображается как данные; приватные шаблоны/файлы недоступны.
 
-Primary documentation: [reference 1](https://twig.symfony.com/doc/3.x/api.html#loading-templates-from-a-string).
+Первичная документация: [документация 1](https://twig.symfony.com/doc/3.x/api.html#loading-templates-from-a-string).
 
 <a id="php-curl-tls"></a>
 
-## PHP-CURL-TLS. cURL certificate or hostname checks disabled
+<a id="php-curl-tls-curl-certificate-or-hostname-checks-disabled"></a>
 
-**Search:** scanner rule PHP-CURL-TLS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-CURL-TLS` for details. Regex: CURLOPT_SSL_VERIFYPEER=false/0 and CURLOPT_SSL_VERIFYHOST=false/0/1 in arguments/setopt_array. Variable values are not evaluated.
+## PHP-CURL-TLS. cURL не проверяет сертификат или имя
 
-**Vulnerable example:** Disabling server validation permits substitution of outbound HTTPS results.
+**Поиск:** скрипт, правило PHP-CURL-TLS. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-CURL-TLS. Regex: CURLOPT_SSL_VERIFYPEER=false/0 и CURLOPT_SSL_VERIFYHOST=false/0/1, аргумент или setopt_array. Значения из переменных не вычисляются.
+
+**Уязвимый вариант:** Отключение проверки сервера позволяет подменить результат исходящего HTTPS-запроса.
 
 ~~~php
 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
 curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
 ~~~
 
-**Fix:** Verify peer and hostname with the trusted CA; use VERIFYHOST=2, not historical ambiguous 1.
+**Исправление:** Проверять peer и hostname, настроить доверенный CA. На VERIFYHOST использовать 2, не исторически неоднозначное 1.
 
 ~~~php
 curl_setopt_array($ch, [CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_CAINFO => $trustedCA]);
 ~~~
 
-**Verification:** Correct CA/host works; wrong CA/host and expiry fail without fallback.
+**Проверка:** Верный CA/hostname работает, чужой hostname/CA и истёкший сертификат дают ошибку без fallback.
 
-Primary documentation: [reference 1](https://www.php.net/manual/en/function.curl-setopt.php).
+Первичная документация: [документация 1](https://www.php.net/manual/en/function.curl-setopt.php).
 
 <a id="php-url-include"></a>
 
-## PHP-URL-INCLUDE. Remote resource inclusion enabled
+<a id="php-url-include-remote-resource-inclusion-enabled"></a>
 
-**Search:** scanner rule PHP-URL-INCLUDE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-URL-INCLUDE` for details. Regex: allow_url_include=On/1/true in ini/config/assignment. Review runtime overrides and effective include paths separately.
+## PHP-URL-INCLUDE. Разрешён include удалённого ресурса
 
-**Vulnerable example:** URL include increases the consequences of controlling an include/require path.
+**Поиск:** скрипт, правило PHP-URL-INCLUDE. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-URL-INCLUDE. Regex: allow_url_include=On/1/true в ini/config или присваивании. Runtime overrides и фактический include path проверять отдельно.
+
+**Уязвимый вариант:** URL include расширяет последствия управления путём PHP include/require.
 
 ~~~config
 allow_url_include = On
 ~~~
 
-**Fix:** Disable allow_url_include in the effective SAPI config; select include paths from a closed server-side map.
+**Исправление:** Отключить allow_url_include в действующей конфигурации SAPI; пути подключений выбирать из закрытой серверной таблицы.
 
 ~~~config
 allow_url_include = Off
 ~~~
 
-**Verification:** Normal modules load; client URLs cannot become executable code.
+**Проверка:** Приложение загружает штатные модули; пользовательский URL не становится исполняемым кодом.
 
-Primary documentation: [reference 1](https://www.php.net/manual/en/filesystem.configuration.php#ini.allow-url-include).
+Первичная документация: [документация 1](https://www.php.net/manual/en/filesystem.configuration.php#ini.allow-url-include).
 
 <a id="php-session-config"></a>
 
-## PHP-SESSION-CONFIG. Weakened PHP session configuration
+<a id="php-session-config-weakened-php-session-configuration"></a>
 
-**Search:** scanner rule PHP-SESSION-CONFIG. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain PHP-SESSION-CONFIG` for details. Regex: explicit unsafe use_strict_mode/use_only_cookies/use_trans_sid values. Missing settings and ini_set argument forms need manual review.
+## PHP-SESSION-CONFIG. Ослабленные настройки PHP-сессии
 
-**Vulnerable example:** Attacker-selected session IDs and IDs in URLs enable fixation or leakage.
+**Поиск:** скрипт, правило PHP-SESSION-CONFIG. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain PHP-SESSION-CONFIG. Regex: явные опасные значения use_strict_mode/use_only_cookies/use_trans_sid. Пропущенные настройки и ini_set с аргументами остаются ручными.
+
+**Уязвимый вариант:** Принятие навязанного session id и перенос id в URL создают фиксацию/утечку сессии.
 
 ~~~config
 session.use_strict_mode = 0
@@ -634,7 +727,7 @@ session.use_only_cookies = 0
 session.use_trans_sid = 1
 ~~~
 
-**Fix:** Enable strict mode and cookie-only transport, disable URL rewriting and regenerate IDs at login; review custom handlers/cookies.
+**Исправление:** Включить strict mode и cookie-only transport, отключить URL rewriting; при auth сменить id, проверить custom session handler и флаги cookie.
 
 ~~~config
 session.use_strict_mode = 1
@@ -642,51 +735,55 @@ session.use_only_cookies = 1
 session.use_trans_sid = 0
 ~~~
 
-**Verification:** Unknown fixed IDs fail, login changes the ID, URLs/logs contain no IDs and sessions work.
+**Проверка:** Навязанный неизвестный id не принимается, после login id меняется; URL/логи не содержат id, штатная сессия сохраняется.
 
-Primary documentation: [reference 1](https://www.php.net/manual/en/session.configuration.php).
+Первичная документация: [документация 1](https://www.php.net/manual/en/session.configuration.php).
 
 <a id="php-mass-assign"></a>
 
-## PHP-MASS-ASSIGN. Array keys choose columns and privileges
+<a id="php-mass-assign-array-keys-choose-columns-and-privileges"></a>
 
-**Search:** manual review; no separate scanner rule.
+## PHP-MASS-ASSIGN. Ключи массива выбирают колонки и права
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e '\$_(POST|GET|REQUEST)|array_keys|array_merge|profileData|UPDATE|SET|fill\(|update\(' .
 ~~~
 
-Trace keys as well as values from requests into UPDATE/ORM and owner/admin/association assignment. Review nested fields and numeric indices.
+Проследить не только значения, но и ключи массива от запроса до UPDATE/ORM и назначения owner/admin/association. Проверить вложенные поля и числовые индексы.
 
-**Vulnerable example:** SQL values are parameterized but column names come from request keys; role fields or relationships to foreign objects are updated wholesale.
+**Уязвимый вариант:** Параметризованы значения SQL, но имена колонок берутся из пользовательского массива; поле роли или связи с чужим объектом массово обновляется.
 
-**Fix:** Explicitly map allowed input fields to fixed columns and types. Check privileges, owners and relationships separately; placeholders do not escape SQL identifiers.
+**Исправление:** Явно сопоставить разрешённые входные поля фиксированным колонкам и типам. Права, owner и связи проверять отдельно; placeholders не экранируют SQL identifiers.
 
-**Verification:** Unknown columns, administrative fields and foreign relationships fail without mutation; allowed fields persist.
+**Проверка:** Неизвестная колонка, служебное поле и чужая связь отклонены без изменения состояния; разрешённые поля сохраняются.
 
-Reference: [OWASP Mass Assignment](https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html). The explanation and adaptation recipe were written for this catalog.
+Основание: [OWASP Mass Assignment](https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html). Описание и рецепт адаптации составлены для этой базы.
 
-**A/D variant:** Oldschool's mass update could change an administrative relationship; column names also entered SQL without restriction. [Author description](https://github.com/enowars/enowars7-service-oldschool#vulnerabilities).
+**Вариант A/D:** в Oldschool массовое обновление позволяло менять служебную связь; имена колонок также попадали в SQL без ограничения. [Авторское описание](https://github.com/enowars/enowars7-service-oldschool#vulnerabilities).
 
 <a id="php-ldap-filter"></a>
 
-## PHP-LDAP-FILTER. LDAP filter concatenates a PHP variable
+<a id="php-ldap-filter-ldap-filter-concatenates-a-php-variable"></a>
 
-**Search:** scanner rule PHP-LDAP-FILTER. Use `--explain PHP-LDAP-FILTER` for the exact detector contract. Regex with lexical exclusions: ldap_search/list/read with simple first two arguments and a string concatenated directly with a variable as the third argument. Variables may already be escaped; prebuilt filters and interpolation need manual review.
+## PHP-LDAP-FILTER. LDAP-фильтр склеивается с PHP-переменной
 
-**Vulnerable example:**
+**Поиск:** правило сканера PHP-LDAP-FILTER. Точный контракт детектора: `--explain PHP-LDAP-FILTER`. Regex с лексическими исключениями: ldap_search/list/read с простыми первыми двумя аргументами и строкой, напрямую объединённой с переменной в третьем аргументе. Переменная может уже быть экранирована; заранее собранные фильтры и интерполяция требуют ручной проверки.
+
+**Уязвимый вариант:**
 
 ~~~php
 ldap_search($conn, $base, '(uid=' . $name . ')');
 ~~~
 
-**Fix:** Escape values for LDAP filter context, not DN context; keep attribute names and search scope trusted.
+**Исправление:** Экранируйте значения для контекста LDAP-фильтра, а не DN; имена атрибутов и область поиска должны быть доверенными.
 
 ~~~php
 $filter = '(uid=' . ldap_escape($name, '', LDAP_ESCAPE_FILTER) . ')';
 ldap_search($conn, $base, $filter);
 ~~~
 
-**Verification:** LDAP metacharacters in a value do not widen results; authorized lookups work.
+**Проверка:** Метасимволы LDAP в значении не расширяют результат; разрешённые поисковые запросы работают.
 
-[Primary reference 1](https://www.php.net/manual/en/function.ldap-escape.php)
+[Первичный источник 1](https://www.php.net/manual/en/function.ldap-escape.php)

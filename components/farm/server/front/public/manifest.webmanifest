@@ -1,0 +1,16 @@
+{
+  "name": "wahrwelt / Farm",
+  "short_name": "wahrwelt",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#333333",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "type": "image/jpeg",
+      "sizes": "739x415"
+    }
+  ]
+}

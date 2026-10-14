@@ -1,0 +1,120 @@
+services:
+  neo:
+    build:
+      context: .
+      additional_contexts:
+        project: ../..
+      dockerfile: Dockerfile
+    environment:
+      NEO_GRPC_AUTH_KEY: ${NEO_KEY:?Задайте NEO_KEY}
+      NEO_WORKER_KEY: ${NEO_WORKER_KEY:?Задайте NEO_WORKER_KEY}
+      NEO_FARM_PASSWORD: ${FARM_PASSWORD:?Задайте FARM_PASSWORD}
+      NEO_FARM_URL: ${FARM_URL:-http://farm:5000}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${NEO_PORT:-5005}:5005"
+    expose:
+      - "5005"
+    volumes:
+      - neo-data:/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700
+    networks:
+      - default
+      - neo-data
+    depends_on:
+      neo-redis:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    init: true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  neo-redis:
+    build:
+      context: .
+      dockerfile: redis.Dockerfile
+    user: "999:1000"
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - neo-redis-data:/data
+    networks:
+      - neo-data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  neo-worker:
+    profiles:
+      - worker
+    build:
+      context: .
+      additional_contexts:
+        project: ../..
+      dockerfile: client_env/Dockerfile
+    environment:
+      NEO_HOST: neo:5005
+      NEO_GRPC_AUTH_KEY: ${NEO_WORKER_KEY:?Задайте NEO_WORKER_KEY}
+      NEO_EXPLOIT_DIR: /work/exploits
+      NEO_METRICS_HOST: ""
+      NEO_ALLOW_BROADCAST_COMMANDS: "false"
+      NEO_WORKER_JOBS: ${NEO_WORKER_JOBS:-2}
+    command:
+      - /usr/local/bin/neo
+      - --config
+      - /etc/neo/client_config.yml
+      - run
+      - --jobs
+      - ${NEO_WORKER_JOBS:-2}
+      - --endless-jobs
+      - ${NEO_WORKER_ENDLESS_JOBS:-0}
+    depends_on:
+      neo:
+        condition: service_healthy
+    networks:
+      - default
+    tmpfs:
+      - /work:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700,exec
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2.0
+    init: true
+    stop_grace_period: 10s
+    restart: unless-stopped
+
+volumes:
+  neo-data:
+  neo-redis-data:
+
+networks:
+  neo-data:
+    internal: true

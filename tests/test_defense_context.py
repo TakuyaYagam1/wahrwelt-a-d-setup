@@ -1,4 +1,4 @@
-"""Independent malformed scanner-scope boundary regressions."""
+"""Некорректные границы области проверки сканера."""
 import contextlib
 import hashlib
 import importlib.util
@@ -35,7 +35,7 @@ class ScopeBoundaryTests(unittest.TestCase):
     def test_cli_malformed_scope_returns_two_without_traceback_or_payload(self):
         with tempfile.TemporaryDirectory() as directory:
             report_path = Path(directory) / "report.json"
-            report = {"tool": "DurkaHelper defense_scan", "version": "1.7.0", "offline": True,
+            report = {"tool": "wahrwelt defense_scan", "version": "1.7.0", "offline": True,
                       "created_at": "2026-10-09T00:00:00Z", "findings": [], "issues": [],
                       "partial": False, "exit_code": 0}
             for value in ([], {"secret": "CANARY_SCOPE"}):

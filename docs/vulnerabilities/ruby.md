@@ -1,431 +1,473 @@
-# Ruby / Rails: find, fix and verify
+<a id="ruby--rails-find-fix-and-verify"></a>
 
-English | [Русский](ruby-RU.md)
+# Ruby / Rails: поиск и исправление
 
-[Catalog](README.md) · [Scanner](../offline-scanner.md) · [Patch verification](../patch-validation.md)
 
-18 sections. Each follows **Search → Vulnerable example → Fix → Verification**.
-Run `rg` from a local service checkout; searches only read files. Derive the actor/owner from a verified session, not request data. Adapt examples to the actual API and contract.
+[Вся база](README.md)  |  [Сканер](../scanners.md)  |  [Проверка патча](../scanners.md#проверка-исправления)
 
-## Contents
+18 разделов. Формат: **Поиск -> Уязвимый вариант -> Исправление -> Проверка**.
+Команды `rg` выполняются в корне локальной копии сервиса и только читают файлы. Субъект/владелец определяется по проверенной сессии, а не данным запроса. Примеры нужно адаптировать к реальным API и контракту.
 
-- [RUBY-OBJECT — Ruby Marshal or unsafe YAML](#ruby-object)
-- [RUBY-SHELL — Ruby shell string](#ruby-shell)
-- [RUBY-EVAL — Ruby eval/ERB from data](#ruby-eval)
-- [RUBY-PERMIT-ALL — Rails permits all parameters](#ruby-permit-all)
-- [RUBY-CONSTANTIZE — String selects a Ruby class](#ruby-constantize)
-- [RUBY-HTML-SAFE — Ruby html_safe/raw](#ruby-html-safe)
-- [RUBY-SQL — Ruby SQL interpolation](#ruby-sql)
-- [RUBY-IDOR — ActiveRecord lookup outside the owner's scope](#ruby-idor)
-- [RUBY-PATH — Client filenames reach send_file and File.join](#ruby-path)
-- [RUBY-REDIRECT — redirect_to accepts an external return_to](#ruby-redirect)
-- [RUBY-CSRF — Rails controller disables CSRF](#ruby-csrf)
-- [RUBY-REGEX-ANCHOR — ^ and $ match a line inside a multiline value](#ruby-regex-anchor)
-- [RUBY-YAML-VERSION — YAML.load behavior depends on Psych version](#ruby-yaml-version)
-- [RUBY-DESERIALIZE-COOKIE — Signed cookies are not necessarily confidential](#ruby-deserialize-cookie)
-- [RUBY-SSRF — Client input reaches Net::HTTP or open-uri](#ruby-ssrf)
-- [RUBY-CALLBACKS — Callbacks cause effects before authorization](#ruby-callbacks)
-- [RUBY-TLS — Ruby HTTPS peer verification disabled](#ruby-tls)
-- [RUBY-REDIRECT-INPUT — Rails redirect takes request params directly](#ruby-redirect-input)
+Автоматические находки - ограниченные синтаксические сигналы для проверки. AST-анализ не разрешает типы и не отслеживает данные между функциями; regex не заменяет парсер языка. Комментарии, строки и одноимённые пользовательские API могут давать совпадения. Проверьте фактическое исполнение, входные данные, авторизацию и границы доверия.
+
+<a id="contents"></a>
+
+## Содержание
+
+- [RUBY-OBJECT - Ruby Marshal/небезопасный YAML](#ruby-object)
+- [RUBY-SHELL - Shell-строка Ruby](#ruby-shell)
+- [RUBY-EVAL - Ruby eval/ERB из данных](#ruby-eval)
+- [RUBY-PERMIT-ALL - Rails разрешает все параметры](#ruby-permit-all)
+- [RUBY-CONSTANTIZE - Строка выбирает Ruby-класс](#ruby-constantize)
+- [RUBY-HTML-SAFE - Отключено HTML-экранирование в Ruby](#ruby-html-safe)
+- [RUBY-SQL - Интерполяция в SQL Ruby](#ruby-sql)
+- [RUBY-IDOR - ActiveRecord find без области владельца](#ruby-idor)
+- [RUBY-PATH - send_file и File.join на имени клиента](#ruby-path)
+- [RUBY-REDIRECT - redirect_to принимает внешний return_to](#ruby-redirect)
+- [RUBY-CSRF - Пропущенная forgery protection](#ruby-csrf)
+- [RUBY-REGEX-ANCHOR - ^ и $ проверяют строку внутри многострочного поля](#ruby-regex-anchor)
+- [RUBY-YAML-VERSION - YAML.load зависит от версии Psych](#ruby-yaml-version)
+- [RUBY-DESERIALIZE-COOKIE - Подписанная cookie не обязательно секретна](#ruby-deserialize-cookie)
+- [RUBY-SSRF - Net::HTTP/open-uri на вводе клиента](#ruby-ssrf)
+- [RUBY-CALLBACKS - Callbacks выполняют эффект до проверки прав](#ruby-callbacks)
+- [RUBY-TLS - Ruby HTTPS без проверки peer](#ruby-tls)
+- [RUBY-REDIRECT-INPUT - Rails redirect напрямую принимает параметры запроса](#ruby-redirect-input)
 
 <a id="ruby-object"></a>
 
-## RUBY-OBJECT. Ruby Marshal or unsafe YAML
+<a id="ruby-object-ruby-marshal-or-unsafe-yaml"></a>
 
-**Search:** scanner rule RUBY-OBJECT. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-OBJECT` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-OBJECT. Ruby Marshal/небезопасный YAML
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-OBJECT. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-OBJECT. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 record = Marshal.load(payload)
 ~~~
 
-**Fix:** Use JSON or bounded YAML.safe_load with class/alias policy and schema; migrate trusted legacy data separately.
+**Исправление:** Внешний формат - JSON или ограниченный YAML.safe_load с явной политикой классов/aliases и схемой; legacy мигрировать отдельно.
 
 ~~~ruby
 record = JSON.parse(payload) # validate DTO schema and size
 ~~~
 
-**Verification:** Arbitrary objects are not built; old valid data works.
+**Проверка:** Произвольные объекты не создаются; старые законные данные сохранены.
 
 <a id="ruby-shell"></a>
 
-## RUBY-SHELL. Ruby shell string
+<a id="ruby-shell-ruby-shell-string"></a>
 
-**Search:** scanner rule RUBY-SHELL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-SHELL` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-SHELL. Shell-строка Ruby
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-SHELL. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-SHELL. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 system(command)
 ~~~
 
-**Fix:** Use fixed executable plus separate validated argv; backticks and %x also invoke shell.
+**Исправление:** Фиксированный executable + отдельные argv; запрет выбора опасных опций. Backticks и %x тоже вызывают shell.
 
 ~~~ruby
 system("/usr/bin/file", "--", filename)
 ~~~
 
-**Verification:** Metacharacters cannot become commands; normal files work.
+**Проверка:** Спецсимволы не становятся командами; штатные файлы обрабатываются.
 
 <a id="ruby-eval"></a>
 
-## RUBY-EVAL. Ruby eval/ERB from data
+<a id="ruby-eval-ruby-evalerb-from-data"></a>
 
-**Search:** scanner rule RUBY-EVAL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-EVAL` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-EVAL. Ruby eval/ERB из данных
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-EVAL. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-EVAL. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 result = eval(input)
 ~~~
 
-**Fix:** Use trusted templates plus values or a restricted parser instead of executing data.
+**Исправление:** Данные не исполнять; фиксированный ERB-шаблон + переменные или ограниченный парсер.
 
 ~~~ruby
 result = JSON.parse(input) # validate expected schema
 ~~~
 
-**Verification:** Ruby syntax stays data; normal input parses.
+**Проверка:** Синтаксис Ruby не исполняется; штатный формат читается.
 
 <a id="ruby-permit-all"></a>
 
-## RUBY-PERMIT-ALL. Rails permits all parameters
+<a id="ruby-permit-all-rails-permits-all-parameters"></a>
 
-**Search:** scanner rule RUBY-PERMIT-ALL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-PERMIT-ALL` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-PERMIT-ALL. Rails разрешает все параметры
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-PERMIT-ALL. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-PERMIT-ALL. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 attrs = params.permit!
 ~~~
 
-**Fix:** Allowlist editable fields; choose owner/role server-side and constrain nested params separately.
+**Исправление:** Явный набор редактируемых полей, owner/role из сервера; nested params ограничить отдельно.
 
 ~~~ruby
 attrs = params.require(:note).permit(:title, :body)
 ~~~
 
-**Verification:** Owner/role/unknown nested fields do not apply; valid partial edits work.
+**Проверка:** Owner/role/вложенные неизвестные поля не применяются; допустимое частичное изменение работает.
 
-**Reference:** [primary source](https://guides.rubyonrails.org/action_controller_overview.html#strong-parameters).
+**Основание:** [первичный материал](https://guides.rubyonrails.org/action_controller_overview.html#strong-parameters).
 
 <a id="ruby-constantize"></a>
 
-## RUBY-CONSTANTIZE. String selects a Ruby class
+<a id="ruby-constantize-string-selects-a-ruby-class"></a>
 
-**Search:** scanner rule RUBY-CONSTANTIZE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-CONSTANTIZE` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-CONSTANTIZE. Строка выбирает Ruby-класс
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-CONSTANTIZE. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-CONSTANTIZE. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 klass = params[:type].constantize
 ~~~
 
-**Fix:** Use a fixed map of allowed DTO types; safe_constantize only changes lookup errors, not the allowed classes.
+**Исправление:** Фиксированная карта типов с безопасным DTO. safe_constantize меняет обработку ошибки поиска, не ограничивает выбор класса.
 
 ~~~ruby
 klass = {"text" => TextNote}.fetch(validated_type)
 ~~~
 
-**Verification:** Unknown types cannot create objects; valid types remain compatible.
+**Проверка:** Неизвестный тип не создаёт объектов; законные типы совместимы.
 
-**Reference:** [primary source](https://api.rubyonrails.org/classes/ActiveSupport/Inflector.html).
+**Основание:** [первичный материал](https://api.rubyonrails.org/classes/ActiveSupport/Inflector.html).
 
 <a id="ruby-html-safe"></a>
 
-## RUBY-HTML-SAFE. Ruby html_safe/raw
+<a id="ruby-html-safe-ruby-html_saferaw"></a>
 
-**Search:** scanner rule RUBY-HTML-SAFE. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-HTML-SAFE` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-HTML-SAFE. Отключено HTML-экранирование в Ruby
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-HTML-SAFE. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-HTML-SAFE. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 value = params[:text].html_safe
 ~~~
 
-**Fix:** Use context-appropriate autoescape or a sanitizer for permitted HTML; HTML data is not ERB source.
+**Исправление:** Autoescape по контексту; для предусмотренного HTML sanitizer. Не путать обработку HTML с исходником ERB.
 
 ~~~ruby
 value = params[:text] # render with automatic escaping
 ~~~
 
-**Verification:** Tags/quotes remain text and approved formatting works.
+**Проверка:** Теги и кавычки - текст, разрешённое форматирование сохранилось.
 
-**Reference:** [primary source](https://guides.rubyonrails.org/security.html).
+**Основание:** [первичный материал](https://guides.rubyonrails.org/security.html).
 
 <a id="ruby-sql"></a>
 
-## RUBY-SQL. Ruby SQL interpolation
+<a id="ruby-sql-ruby-sql-interpolation"></a>
 
-**Search:** scanner rule RUBY-SQL. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-SQL` for details. Bounded textual heuristic, not a language parser or taint analysis. Comments, strings and same-named APIs can match; inspect actual execution and trust boundaries.
+## RUBY-SQL. Интерполяция в SQL Ruby
 
-**Vulnerable example:**
+**Поиск:** скрипт, правило RUBY-SQL. Запуск: из wahrwelt - python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-SQL. Это синтаксический сигнал, не проверка потока данных: проследить вход, валидацию и все вызовы найденного API.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 Note.where("title = '#{title}'")
 ~~~
 
-**Fix:** Bind values with the ORM/driver API; select identifiers from a server allowlist.
+**Исправление:** Параметры/hash conditions; сортировка и имена полей из фиксированной карты. Сырой SQL внутри параметра не исправляется сам.
 
 ~~~ruby
 Note.where(title: title, owner_id: current_user.id)
 ~~~
 
-**Verification:** Quotes remain values and tenant/owner conditions hold.
+**Проверка:** Кавычки - данные; чужой owner не читается.
 
-**Reference:** [primary source](https://guides.rubyonrails.org/active_record_querying.html).
+**Основание:** [первичный материал](https://guides.rubyonrails.org/active_record_querying.html).
 
 <a id="ruby-idor"></a>
 
-## RUBY-IDOR. ActiveRecord lookup outside the owner's scope
+<a id="ruby-idor-activerecord-lookup-outside-the-owners-scope"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-IDOR. ActiveRecord find без области владельца
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e '\.find\(|find_by|params\[:id\]|current_user' .
 ~~~
 
-Review read/update/destroy/export and association scopes; strong parameters do not authorize an object.
+Сверить read/update/destroy/export и association scope; strong params не выполняют авторизацию объекта.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`Note.find(params[:id])` can retrieve any user's record.
+Note.find(params[:id]) получает запись любого пользователя.
 
-**Fix:** Query through `current_user.notes` or an explicit policy/shared-access scope; never take the owner from request parameters.
+**Исправление:** Поиск через current_user.notes либо явная policy/shared-access область; owner не из params.
 
-**Verification:** Owner, other user, anonymous caller, export/deletion and intended sharing.
+**Проверка:** Своё/чужое/аноним, экспорт/удаление и предусмотренное sharing.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html).
 
 <a id="ruby-path"></a>
 
-## RUBY-PATH. Client filenames reach send_file and File.join
+<a id="ruby-path-client-filenames-reach-send_file-and-filejoin"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-PATH. send_file и File.join на имени клиента
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'send_file|File.join|File.read|Pathname|realpath' .
 ~~~
 
-Trace the filename to the open operation; join does not enforce containment, and realpath alone does not prevent TOCTOU.
+Проследить filename до открытия; join не проверяет containment, realpath не убирает TOCTOU.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-`send_file(params[:path])` selects an arbitrary resource.
+send_file(params[:path]) выбирает произвольный ресурс.
 
-**Fix:** Resolve a server-side storage ID after policy checks; control the root and symlinks, bound the response and set Content-Disposition.
+**Исправление:** Серверный storage ID после policy check, контролируемый root и links, лимит/Content-Disposition.
 
-**Verification:** Another owner's ID, absolute path, outward symlink and legitimate download.
+**Проверка:** Чужой ID, абсолютный путь, ссылка наружу и штатная загрузка.
 
 <a id="ruby-redirect"></a>
 
-## RUBY-REDIRECT. redirect_to accepts an external return_to
+<a id="ruby-redirect-redirect_to-accepts-an-external-return_to"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-REDIRECT. redirect_to принимает внешний return_to
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'redirect_to|return_to|allow_other_host|url_from' .
 ~~~
 
-Check the installed Rails version and open-redirect protection settings; a raw return_to value is not a trusted URL.
+Сверить версию Rails и настройки open-redirect protection; raw return_to не превращать в доверенный URL.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A parameter or `allow_other_host` permits an external destination.
+Внешнее назначение разрешено параметром/allow_other_host.
 
-**Fix:** Use a server-side route map or the installed Rails version's safe redirect mechanism with host validation.
+**Исправление:** Серверная карта путей либо штатный безопасный механизм версии Rails с проверкой host.
 
-**Verification:** Internal navigation works; external origins and ambiguous paths fail.
+**Проверка:** Внутренний переход работает, внешний origin и неоднозначный путь отклоняются.
 
-**Reference:** [primary source](https://guides.rubyonrails.org/security.html).
+**Основание:** [первичный материал](https://guides.rubyonrails.org/security.html).
 
 <a id="ruby-csrf"></a>
 
-## RUBY-CSRF. Rails controller disables CSRF
+<a id="ruby-csrf-rails-controller-disables-csrf"></a>
 
-**Search:** scanner rule RUBY-CSRF. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-CSRF` for details. Regex: skip_forgery_protection, skip_before_action/filter :verify_authenticity_token and allow_forgery_protection=false. Review only/except conditions.
+## RUBY-CSRF. Пропущенная forgery protection
 
-Additional manual search for forms outside automatic coverage:
+**Поиск:** скрипт, правило RUBY-CSRF. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-CSRF. Regex: skip_forgery_protection, skip_before_action/filter :verify_authenticity_token и allow_forgery_protection=false. only/except анализировать вручную.
+
+Дополнительный ручной поиск для непокрытых форм:
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'skip_forgery_protection|skip_before_action|protect_from_forgery|csrf' .
 ~~~
 
-Review controller exceptions and cookie authentication on JSON endpoints.
+Проверить исключения controller и применение cookie auth на JSON endpoint.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The cookie session remains active while CSRF middleware is disabled for API convenience.
+Cookie-сессия сохраняется, а CSRF middleware отключено ради удобства API.
 
-**Fix:** Restore browser CSRF; narrow exceptions to an independently authenticated stateless API/webhook.
+**Исправление:** Восстановить проверку для cookie-auth; token API отделить явно, не отключать весь controller.
 
-**Verification:** Valid POST works; missing/wrong authenticity token fails; authorized webhooks work.
+**Проверка:** Правильный token принимается, чужой origin/пустой token отклоняются; API-клиент совместим.
 
-**Reference:** [primary source](https://guides.rubyonrails.org/security.html).
+**Основание:** [первичный материал](https://guides.rubyonrails.org/security.html).
 
-**Scanner example before:**
+
+**Сигнал сканера - пример до:**
 
 ~~~ruby
 skip_forgery_protection
 skip_before_action :verify_authenticity_token
 ~~~
 
-**Fix template:**
+**Шаблон исправления:**
 
 ~~~ruby
 protect_from_forgery with: :exception
 ~~~
 
-Primary documentation: [reference 1](https://api.rubyonrails.org/classes/ActionController/RequestForgeryProtection/ClassMethods.html).
+Первичная документация: [документация 1](https://api.rubyonrails.org/classes/ActionController/RequestForgeryProtection/ClassMethods.html).
 
 <a id="ruby-regex-anchor"></a>
 
-## RUBY-REGEX-ANCHOR. ^ and $ match a line inside a multiline value
+<a id="ruby-regex-anchor--and--match-a-line-inside-a-multiline-value"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-REGEX-ANCHOR. ^ и $ проверяют строку внутри многострочного поля
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'validates|format:|Regexp|match\?|\^|\$' .
 ~~~
 
-Distinguish line boundaries from whole-field boundaries; test newlines and regexp timeouts.
+Сравнить начало/конец строки и всего поля; проверить переводы строк и timeout regexp.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A name validator uses ^...$ and accepts one matching line inside a larger value.
+Валидатор имени использует ^...$ и принимает подходящую строку внутри большего значения.
 
-**Fix:** Use `\A` and `\z` for the whole value, plus type/length checks; explicitly define the contract if multiline input is allowed.
+**Исправление:** Для целого значения \A и \z, проверка типа/длины; при разрешённых multiline выбрать соответствующий контракт.
 
-**Verification:** Newlines at the beginning, end and middle, plus ordinary Unicode.
+**Проверка:** Переводы строк в начале/конце/середине и штатный Unicode.
 
-**Reference:** [primary source](https://guides.rubyonrails.org/security.html).
+**Основание:** [первичный материал](https://guides.rubyonrails.org/security.html).
 
 <a id="ruby-yaml-version"></a>
 
-## RUBY-YAML-VERSION. YAML.load behavior depends on Psych version
+<a id="ruby-yaml-version-yamlload-behavior-depends-on-psych-version"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-YAML-VERSION. YAML.load зависит от версии Psych
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'YAML.load|Psych.load|safe_load|unsafe_load|Gemfile.lock' .
 ~~~
 
-Check the actual Psych/Ruby version and permitted classes/aliases; RUBY-OBJECT deliberately does not classify every load as unsafe.
+Сверить фактическую Psych/Ruby версию и allowed classes/aliases; RUBY-OBJECT намеренно не считает каждый load unsafe.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-The application assumes new Psych's safe semantics but runs an older object-instantiating version.
+Ожидают safe semantics нового Psych, запускают старую версию с созданием произвольных объектов.
 
-**Fix:** Explicit safe_load with minimal permitted types and a schema; pin compatible dependencies locally.
+**Исправление:** Явный safe_load с минимальным набором типов и схемой; фиксировать совместимые зависимости локально.
 
-**Verification:** Arbitrary classes/aliases and legitimate legacy documents on the actual runtime.
+**Проверка:** Произвольный класс/alias и старый допустимый документ; на фактическом runtime.
 
-**Reference:** [primary source](https://docs.ruby-lang.org/en/3.3/Psych.html).
+**Основание:** [первичный материал](https://docs.ruby-lang.org/en/3.3/Psych.html).
 
 <a id="ruby-deserialize-cookie"></a>
 
-## RUBY-DESERIALIZE-COOKIE. Signed cookies are not necessarily confidential
+<a id="ruby-deserialize-cookie-signed-cookies-are-not-necessarily-confidential"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-DESERIALIZE-COOKIE. Подписанная cookie не обязательно секретна
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'cookies.signed|cookies.encrypted|session\[|secret_key_base' .
 ~~~
 
-Inspect cookie contents; distinguish integrity from encryption, and possession of a signing key from authorization to an object.
+Посмотреть, что хранится в cookie; отличить целостность от шифрования и ключ подписи от доступа к объекту.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-Private text is placed in a signed cookie under the mistaken assumption that the signature hides it.
+В signed cookie кладут приватный текст, полагая что подпись его скрывает.
 
-**Fix:** Use encrypted cookies or server-side session storage for confidentiality; minimize data and lifetime and plan safe key rotation.
+**Исправление:** Для конфиденциальности encrypted cookie либо серверный session store; минимальные данные и срок, безопасная ротация ключей.
 
-**Verification:** Normal sessions remain readable, clients cannot see private contents, and tampering is rejected.
+**Проверка:** Обычная сессия читается, клиент не видит приватное содержимое, изменённая cookie отвергается.
 
 <a id="ruby-ssrf"></a>
 
-## RUBY-SSRF. Client input reaches Net::HTTP or open-uri
+<a id="ruby-ssrf-client-input-reaches-nethttp-or-open-uri"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-SSRF. Net::HTTP/open-uri на вводе клиента
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'Net::HTTP|URI.open|open-uri|Faraday|HTTParty' .
 ~~~
 
-Find URL parsing, redirects and DNS resolution in the actual adapter.
+Найти URL parser, redirects и DNS в реальном adapter.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A URL or redirect reaches an internal resource using the application's trust.
+URL/redirect ведёт к внутреннему ресурсу с доверием к приложению.
 
-**Fix:** Use a fixed destination or a unified policy for every redirect and connection, with limits; URI.parse is not authorization.
+**Исправление:** Фиксированное назначение либо единая политика всех переходов/соединения и лимиты; URI.parse не авторизация.
 
-**Verification:** Mock redirects/DNS, prohibited schemes, timeouts and the legitimate upstream.
+**Проверка:** Mock redirect/DNS, запрещённая схема, timeout и штатный upstream.
 
-**Reference:** [primary source](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
+**Основание:** [первичный материал](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html).
 
 <a id="ruby-callbacks"></a>
 
-## RUBY-CALLBACKS. Callbacks cause effects before authorization
+<a id="ruby-callbacks-callbacks-cause-effects-before-authorization"></a>
 
-**Search:** manual review; no separate scanner rule.
+## RUBY-CALLBACKS. Callbacks выполняют эффект до проверки прав
+
+**Поиск:** вручную; отдельного правила сканера нет.
 
 ~~~bash
 rg -n --hidden -g '!vendor/**' -g '!node_modules/**' -g '!.git/**' -e 'before_save|after_save|after_commit|after_find|validate|authorize' .
 ~~~
 
-Compare the ordering of policy checks, instantiation, callbacks and transaction boundaries.
+Сопоставить policy check, instantiation, callbacks и transaction boundary.
 
-**Vulnerable example:**
+**Уязвимый вариант:**
 
-A model writes a file or queues a task in a callback before authorization or commit.
+Модель пишет файл/отправляет задачу в callback до auth либо до commit.
 
-**Fix:** Authorize before mutation; perform external effects after confirmed commit with contractual idempotency and compensation.
+**Исправление:** Авторизация до изменения; внешние эффекты после подтверждённого commit, идемпотентность и компенсация по контракту.
 
-**Verification:** Rollback/denial leaves no effects; repeated tasks do not duplicate results.
+**Проверка:** Rollback/отказ не оставляет эффектов, повторная задача не дублирует результат.
 
 <a id="ruby-tls"></a>
 
-## RUBY-TLS. Ruby HTTPS peer verification disabled
+<a id="ruby-tls-ruby-https-peer-verification-disabled"></a>
 
-**Search:** scanner rule RUBY-TLS. Run from DurkaHelper: `python3 -I -S scripts/defense_scan.py /path/to/service --patches`; use `--explain RUBY-TLS` for details. Regex: VERIFY_NONE. Does not establish whether the object is used for a real connection.
+## RUBY-TLS. Ruby HTTPS без проверки peer
 
-**Vulnerable example:** VERIFY_NONE leaves the TLS connection unverified.
+**Поиск:** скрипт, правило RUBY-TLS. Запуск: python3 -I -S scripts/defense_scan.py /path/to/service --patches; подробности - --explain RUBY-TLS. Regex: VERIFY_NONE. Не определяет, применён ли объект к реальному соединению.
+
+**Уязвимый вариант:** VERIFY_NONE делает TLS-соединение непроверенным.
 
 ~~~ruby
 http.verify_mode = OpenSSL::SSL::VERIFY_NONE
 ~~~
 
-**Fix:** Restore peer/hostname checks and the trusted CA; verify actual HTTP client settings.
+**Исправление:** Вернуть проверку peer/hostname и доверенный CA; проверить настройки используемого HTTP-клиента.
 
 ~~~ruby
 http.verify_mode = OpenSSL::SSL::VERIFY_PEER
 http.ca_file = trusted_ca_file
 ~~~
 
-**Verification:** Correct server works; invalid certificates cannot yield useful responses.
+**Проверка:** Штатный сервер доступен, неверный сертификат не даёт полезного ответа.
 
-Primary documentation: [reference 1](https://docs.ruby-lang.org/en/master/OpenSSL/SSL/SSLContext.html).
+Первичная документация: [документация 1](https://docs.ruby-lang.org/en/master/OpenSSL/SSL/SSLContext.html).
 
 <a id="ruby-redirect-input"></a>
 
-## RUBY-REDIRECT-INPUT. Rails redirect takes request params directly
+<a id="ruby-redirect-input-rails-redirect-takes-request-params-directly"></a>
 
-**Search:** scanner rule RUBY-REDIRECT-INPUT. Use `--explain RUBY-REDIRECT-INPUT` for the exact detector contract. Regex with lexical exclusions: redirect_to with params[...] or request.params[...], with optional opening parenthesis. Framework defaults may already reject external hosts; aliases, helpers and allow_other_host configuration need review.
+## RUBY-REDIRECT-INPUT. Rails redirect напрямую принимает параметры запроса
 
-**Vulnerable example:**
+**Поиск:** правило сканера RUBY-REDIRECT-INPUT. Точный контракт детектора: `--explain RUBY-REDIRECT-INPUT`. Regex с лексическими исключениями: redirect_to с params[...] или request.params[...], с необязательной открывающей скобкой. Defaults фреймворка могут уже запрещать внешние hosts; aliases, вспомогательные функции и allow_other_host требуют проверки.
+
+**Уязвимый вариант:**
 
 ~~~ruby
 redirect_to params[:next]
 ~~~
 
-**Fix:** Use server-selected routes or an explicit redirect policy; preserve Rails' host checks and review the installed framework version.
+**Исправление:** Используйте маршруты, выбранные сервером, или явную политику redirect; сохраняйте проверки host в Rails и учитывайте установленную версию фреймворка.
 
 ~~~ruby
 redirect_to account_path
 ~~~
 
-**Verification:** Foreign and scheme-relative destinations fail; legitimate navigation works.
+**Проверка:** Чужие адреса и адреса вида //host отклоняются; обычная навигация работает.
 
-[Primary reference 1](https://api.rubyonrails.org/classes/ActionController/Redirecting.html)
+[Первичный источник 1](https://api.rubyonrails.org/classes/ActionController/Redirecting.html)
