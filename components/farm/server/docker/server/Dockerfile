@@ -21,4 +21,4 @@ COPY --from=project /LICENSE /usr/share/licenses/wahrwelt/LICENSE
 
 USER farm
 EXPOSE 5000
-CMD ["gunicorn", "--bind=0.0.0.0:5000", "--workers=2", "--worker-class=gthread", "--threads=4", "--timeout=30", "--access-logfile=-", "--error-logfile=-", "app_flask:app"]
+CMD ["gunicorn", "--bind=0.0.0.0:5000", "--workers=2", "--worker-class=gthread", "--threads=4", "--timeout=30", "--no-control-socket", "--access-logfile=-", "--error-logfile=-", "app_flask:app"]

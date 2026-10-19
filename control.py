@@ -230,10 +230,35 @@ def compose_base(
     return command
 
 
-def _compose_environment() -> dict[str, str]:
+def load_targets(root: Path = ROOT) -> dict[str, str] | None:
+    """Прочитать targets.txt: один адрес в строке, по желанию 'имя адрес'."""
+    path = Path(root) / "targets.txt"
+    if not path.is_file():
+        return None
+    teams: dict[str, str] = {}
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) > 2:
+            raise ValueError(f"targets.txt:{number}: ожидается 'адрес' или 'имя адрес'")
+        name, address = (parts[0], parts[0]) if len(parts) == 1 else parts
+        if name in teams:
+            raise ValueError(f"targets.txt:{number}: повторяется {name}")
+        teams[name] = address
+    if not 1 <= len(teams) <= 256:
+        raise ValueError("targets.txt должен содержать от 1 до 256 целей")
+    return teams
+
+
+def _compose_environment(root: Path = ROOT) -> dict[str, str]:
     """Disable ambient profile activation; command-specific flags select profiles."""
     environment = dict(os.environ)
     environment["COMPOSE_PROFILES"] = ""
+    teams = load_targets(root)
+    if teams is not None:
+        environment["FARM_TEAMS"] = json.dumps(teams)
     return environment
 
 
@@ -250,7 +275,7 @@ def run_compose(
         return 2
     try:
         command = [*compose_base(root, env_file, project_name, profiles), *arguments]
-        return subprocess.call(command, cwd=root, env=_compose_environment())
+        return subprocess.call(command, cwd=root, env=_compose_environment(root))
     except (OSError, ValueError) as exc:
         print(f"Не удалось запустить Docker Compose: {exc}", file=sys.stderr)
         return 2
@@ -271,7 +296,7 @@ def _compose_config(
     result = subprocess.run(
         command,
         cwd=Path(root).resolve(),
-        env=_compose_environment(),
+        env=_compose_environment(root),
         capture_output=True,
         text=True,
         check=False,
@@ -297,18 +322,19 @@ def all_services(
         if tail:
             print("Команда up не принимает дополнительные параметры.", file=sys.stderr)
             return 2
-        services = [
-            "farm-db",
-            "farm",
-            "farm-front",
-            "packmate-db",
-            "packmate",
-            "neo-redis",
-            "neo",
-            "neo-worker",
-        ]
+        result = run_compose(
+            ["up", "-d", "--build", "--wait", "farm-db", "farm", "farm-front"],
+            root,
+            env_file,
+            project_name,
+        )
+        if result:
+            return result
         return run_compose(
-            ["up", "-d", "--build", "--wait", *services],
+            [
+                "up", "-d", "--build", "--wait",
+                "packmate-db", "packmate", "neo-redis", "neo", "neo-worker",
+            ],
             root,
             env_file,
             project_name,
@@ -703,7 +729,7 @@ def _run_neo_container(
             environment["COMPOSE_PROFILES"] = ""
             environment["NEO_GRPC_AUTH_KEY"] = admin_key
         else:
-            environment = _compose_environment()
+            environment = _compose_environment(root)
         return subprocess.call(args, cwd=Path(root).resolve(), env=environment)
     except (OSError, ValueError) as exc:
         print(f"Не удалось запустить команду Neo: {exc}", file=sys.stderr)

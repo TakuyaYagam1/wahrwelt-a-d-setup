@@ -173,9 +173,13 @@ class ControlTests(unittest.TestCase):
     def test_all_start_excludes_submission_and_all_stop_keeps_volumes(self):
         status, call, _ = self.invoke("all-up")
         self.assertEqual(status, 0)
-        command = call.call_args.args[0]
-        self.assertTrue({"farm-front", "packmate", "neo-worker"}.issubset(command))
-        self.assertNotIn("farm-submit", command)
+        self.assertEqual(call.call_count, 2)
+        farm_command = call.call_args_list[0].args[0]
+        other_command = call.call_args_list[1].args[0]
+        self.assertTrue({"farm", "farm-front"}.issubset(farm_command))
+        self.assertNotIn("neo", farm_command)
+        self.assertTrue({"packmate", "neo-worker"}.issubset(other_command))
+        self.assertNotIn("farm-submit", other_command)
         status, call, _ = self.invoke("all-down")
         self.assertEqual(status, 0)
         command = call.call_args.args[0]
@@ -183,6 +187,11 @@ class ControlTests(unittest.TestCase):
         self.assertNotIn("-v", command)
         self.assertNotIn("--volumes", command)
         self.assertNotIn("--remove-orphans", command)
+
+    def test_all_start_stops_if_farm_is_unhealthy(self):
+        status, call, _ = self.invoke("all-up", result=17)
+        self.assertEqual(status, 17)
+        self.assertEqual(call.call_count, 1)
 
     def test_submission_is_an_explicit_action(self):
         status, call, _ = self.invoke("farm", "submit-up")
