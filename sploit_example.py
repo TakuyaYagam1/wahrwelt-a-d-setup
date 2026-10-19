@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Заготовка задания Neo: запрос к сервису и передача найденных флагов в Farm."""
+"""Заготовка задания Neo: запрос к сервису и вывод ответа, флаги ищет сам Neo."""
 
 from __future__ import annotations
 
-import re
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 TARGET_SCHEME = "http"
+
+# Порт и путь нужно указать в зависимоти от сервиса, типо может быть сервис крутится на 8081 и тогда этот порт передаем
 SERVICE_PORT = 80
+
+# SERVICE_PATH это путь в URL, по которому скрипт делает запрос
+# В build_url он подставляется в конец адреса:
+# при SERVICE_PORT = 8080 и SERVICE_PATH = "/" скрипт ходит на http://10.183.101.2:8080/
 SERVICE_PATH = "/"
 REQUEST_TIMEOUT = 5
-FLAG_PATTERN = re.compile(r"[A-Z0-9]{31}=")
 
 
 def build_url(target: str) -> str:
@@ -51,16 +55,16 @@ def build_url(target: str) -> str:
     return urlunsplit((parsed.scheme, f"{host}:{port}", SERVICE_PATH, "", ""))
 
 
-def run_exploit(target: str) -> list[str]:
-    """Напишите здесь сплоит и верните список найденных флагов."""
+def run_exploit(target: str) -> str:
+    """Напишите здесь сплоит и верните текст, в котором могут быть флаги."""
     url = build_url(target)
     request = Request(url, headers={"User-Agent": "wahrwelt-example/1.0"})
     with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
         body = response.read().decode("utf-8", errors="replace")
 
-    # Замените этот запрос логикой своего задания и верните найденные флаги.
-    # Измените FLAG_PATTERN, если формат отличается от FARM_FLAG_FORMAT в .env.
-    return list(dict.fromkeys(FLAG_PATTERN.findall(body)))
+    # Замените этот запрос логикой своего задания. Формат флага здесь не нужен:
+    # Neo ищет FARM_FLAG_FORMAT в stdout сам.
+    return body
 
 
 def main() -> int:
@@ -69,14 +73,13 @@ def main() -> int:
         return 2
 
     try:
-        flags = run_exploit(sys.argv[1])
+        output = run_exploit(sys.argv[1])
     except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
         print(f"Ошибка запроса к цели: {exc}", file=sys.stderr)
         return 1
 
     # Neo читает stdout и передает совпавшие флаги в Farm.
-    for flag in flags:
-        print(flag, flush=True)
+    print(output, flush=True)
     return 0
 
 
