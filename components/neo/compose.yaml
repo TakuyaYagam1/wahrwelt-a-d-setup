@@ -80,14 +80,14 @@ services:
       NEO_EXPLOIT_DIR: /work/exploits
       NEO_METRICS_HOST: ""
       NEO_ALLOW_BROADCAST_COMMANDS: "false"
-      NEO_WORKER_JOBS: ${NEO_WORKER_JOBS:-2}
+      NEO_WORKER_JOBS: ${NEO_WORKER_JOBS:-15}
     command:
       - /usr/local/bin/neo
       - --config
       - /etc/neo/client_config.yml
       - run
       - --jobs
-      - ${NEO_WORKER_JOBS:-2}
+      - ${NEO_WORKER_JOBS:-15}
       - --endless-jobs
       - ${NEO_WORKER_ENDLESS_JOBS:-0}
     depends_on:
@@ -105,8 +105,8 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 128
-    mem_limit: 2g
-    cpus: 2.0
+    mem_limit: 16g
+    cpus: 4.0
     init: true
     stop_grace_period: 10s
     restart: unless-stopped
