@@ -7,6 +7,12 @@ services:
       SERVER_ADDRESS: ${BIND_ADDRESS:-127.0.0.1}
       SERVER_PORT: ${PACKMATE_PORT:-65000}
       SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:${PACKMATE_DB_PORT:-65432}/packmate
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl --noproxy '*' --max-time 3 --fail --silent --output /dev/null
+          "http://$${SERVER_ADDRESS:-127.0.0.1}:$${SERVER_PORT:-65000}/healthz"
     network_mode: host
     networks: !reset []
     ports: !reset []
